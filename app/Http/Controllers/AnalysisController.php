@@ -194,7 +194,7 @@ public function run(
 
         return redirect()
             ->route('analyses.show', $analysis)
-            ->with('error', 'Не удалось выполнить анализ: ' . $e->getMessage());
+            ->with('error', 'Не удалось выполнить анализ. Попробуйте повторить позже или обратитесь к администратору.');
     }
 }
 

@@ -21,6 +21,15 @@
             </a>
         </div>
 
+        @if (request('start') === 'analysis')
+            <div class="rounded-2xl border border-blue-200 bg-blue-50 px-5 py-4 text-sm text-blue-800">
+                <div class="font-semibold">Как создать новый анализ</div>
+                <div class="mt-1">
+                    Выберите рабочее дело → откройте нужный документ → нажмите «Новый анализ»
+                </div>
+            </div>
+        @endif
+
         @if ($workspaces->isEmpty())
             <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
                 <h3 class="text-lg font-semibold text-slate-900">

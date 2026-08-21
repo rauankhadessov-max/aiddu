@@ -33,9 +33,9 @@
         <nav class="flex-1 space-y-1 px-4 py-6">
 
             <a
-                href="{{ route('dashboard') }}"
+                href="{{ route('workspaces.index') }}"
                 class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
-                {{ request()->routeIs('dashboard')
+                {{ request()->routeIs('workspaces.*') && request('start') !== 'analysis'
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
@@ -43,12 +43,15 @@
                     01
                 </span>
 
-                <span>Главная</span>
+                <span>Рабочие дела</span>
             </a>
 
             <a
-                href="{{ route('workspaces.index') }}"
-                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+                href="{{ route('workspaces.index', ['start' => 'analysis']) }}"
+                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
+                {{ request()->routeIs('workspaces.index') && request('start') === 'analysis'
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
                 <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
                     02
@@ -58,8 +61,11 @@
             </a>
 
             <a
-                href="#"
-                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+                href="{{ route('sources.index') }}"
+                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
+                {{ request()->routeIs('sources.*', 'source-versions.*')
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
                 <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
                     03
@@ -70,7 +76,10 @@
 
             <a
                 href="{{ route('analyses.index') }}"
-                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
+                {{ request()->routeIs('analyses.*')
+                    ? 'bg-blue-600 text-white'
+                    : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
                 <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
                     04
@@ -79,29 +88,35 @@
                 <span>История анализов</span>
             </a>
 
-            <a
-                href="#"
-                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+            <div
+                aria-disabled="true"
+                class="flex cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-500"
             >
                 <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
                     05
                 </span>
 
-                <span>AI-консультант</span>
-            </a>
+                <span class="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <span>AI-консультант</span>
+                    <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Скоро</span>
+                </span>
+            </div>
 
             <div class="my-5 border-t border-white/10"></div>
 
-            <a
-                href="#"
-                class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-300 transition hover:bg-white/10 hover:text-white"
+            <div
+                aria-disabled="true"
+                class="flex cursor-not-allowed items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium text-slate-500"
             >
                 <span class="flex h-8 w-8 items-center justify-center rounded-lg bg-white/10">
                     06
                 </span>
 
-                <span>RU / KZ</span>
-            </a>
+                <span class="flex min-w-0 flex-1 items-center justify-between gap-2">
+                    <span>RU / KZ</span>
+                    <span class="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-400">Скоро</span>
+                </span>
+            </div>
 
             <a
                 href="{{ route('profile.edit') }}"
@@ -195,6 +210,16 @@
     </div>
 
 </div>
+
+<nav class="border-t border-white/10 bg-slate-950 px-4 py-3 text-white lg:hidden">
+    <div class="flex gap-2 overflow-x-auto">
+        <a href="{{ route('workspaces.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Рабочие дела</a>
+        <a href="{{ route('workspaces.index', ['start' => 'analysis']) }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Новый анализ</a>
+        <a href="{{ route('sources.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Нормативная база</a>
+        <a href="{{ route('analyses.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">История</a>
+        <a href="{{ route('profile.edit') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Настройки</a>
+    </div>
+</nav>
 
 </body>
 </html>

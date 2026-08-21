@@ -127,6 +127,52 @@
             </section>
         @endif
 
+        <section class="rounded-2xl border border-slate-200 bg-white p-6">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div>
+                    <h2 class="text-lg font-bold text-slate-900">Анализы документа</h2>
+                    <p class="mt-1 text-sm text-slate-500">
+                        Все созданные анализы и их текущий статус.
+                    </p>
+                </div>
+
+                @unless (blank($document->analysis_instruction))
+                    <a
+                        href="{{ route('analyses.create', $document) }}"
+                        class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
+                    >
+                        + Новый анализ
+                    </a>
+                @endunless
+            </div>
+
+            <div class="mt-5 space-y-3">
+                @forelse ($document->analyses as $analysis)
+                    <a
+                        href="{{ route('analyses.show', $analysis) }}"
+                        class="flex items-start justify-between gap-4 rounded-xl border border-slate-200 p-4 transition hover:border-blue-300"
+                    >
+                        <div class="min-w-0">
+                            <div class="font-semibold text-slate-900">
+                                {{ $analysis->title ?: 'Юридический анализ' }}
+                            </div>
+                            <div class="mt-1 text-sm text-slate-500">
+                                {{ $analysis->created_at?->format('d.m.Y H:i') }}
+                            </div>
+                        </div>
+
+                        <span class="shrink-0 rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
+                            {{ $analysis->status }}
+                        </span>
+                    </a>
+                @empty
+                    <div class="rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
+                        Для этого документа анализы ещё не создавались.
+                    </div>
+                @endforelse
+            </div>
+        </section>
+
         <div class="flex gap-3">
             <a
                 href="{{ route('workspaces.show', $document->workspace) }}"
@@ -135,14 +181,6 @@
                 ← Рабочее дело
             </a>
 
-            @unless (blank($document->analysis_instruction))
-                <a
-                    href="{{ route('analyses.create', $document) }}"
-                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white"
-                >
-                    Новый анализ
-                </a>
-            @endunless
         </div>
 
     </div>

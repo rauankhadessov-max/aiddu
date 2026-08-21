@@ -264,7 +264,7 @@
                 <span>AI DDU Assistant</span>
             </div>
 
-            <a class="login-link" href="#">Войти</a>
+            <a class="login-link" href="{{ route('login') }}">Войти</a>
         </nav>
     </div>
 </header>
@@ -286,7 +286,7 @@
             </p>
 
             <div class="actions">
-                <a class="button button-primary" href="#">Начать работу</a>
+                <a class="button button-primary" href="{{ auth()->check() ? route('dashboard') : route('login') }}">Начать работу</a>
                 <a class="button button-secondary" href="#capabilities">
                     Возможности системы
                 </a>

@@ -56,7 +56,7 @@ class DocumentController extends Controller
         $document->load([
             'workspace',
             'attachments',
-            'analyses',
+            'analyses' => fn ($query) => $query->latest(),
         ]);
 
         return view('documents.show', compact('document'));

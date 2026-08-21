@@ -51,9 +51,9 @@ class WorkspaceController extends Controller
         Gate::authorize('view', $workspace);
 
         $workspace->load([
-            'documents',
+            'documents' => fn ($query) => $query->latest(),
             'sources.versions',
-            'analyses',
+            'analyses' => fn ($query) => $query->latest(),
         ]);
 
         return view('workspaces.show', compact('workspace'));

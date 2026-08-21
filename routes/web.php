@@ -5,6 +5,7 @@ use App\Http\Controllers\WorkspaceController;
 use App\Http\Controllers\DocumentController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SourceController;
+use App\Http\Controllers\DraftPackageController;
 
 
 Route::get('/', function () {
@@ -61,6 +62,9 @@ Route::put('/sources/{source}/versions/{version}', [SourceController::class, 'up
 
     Route::post('/analyses/{analysis}/run', [AnalysisController::class, 'run'])
     ->name('analyses.run');
+
+    Route::post('/analyses/{analysis}/draft-package', [DraftPackageController::class, 'store'])
+        ->name('draft-packages.store');
 
     Route::get('/workspaces', [WorkspaceController::class, 'index'])
         ->name('workspaces.index');

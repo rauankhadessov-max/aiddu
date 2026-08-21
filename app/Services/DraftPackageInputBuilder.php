@@ -50,6 +50,22 @@ class DraftPackageInputBuilder
             'status' => $source->status,
         ];
         $profile = $this->typeResolver->resolve($sourceSnapshot);
+        $savedSourceSnapshots = collect($settings['source_snapshots'] ?? [])->keyBy('source_version_id');
+        $sourceSnapshots = $analysis->amendments
+            ->unique('source_version_id')
+            ->map(function (AnalysisAmendment $amendment) use ($sourceSnapshot, $savedSourceSnapshots) {
+                $saved = $savedSourceSnapshots->get($amendment->source_version_id, []);
+
+                return [
+                    ...$sourceSnapshot,
+                    'source_version_id' => $amendment->source_version_id,
+                    'version_name' => $saved['version_name'] ?? $amendment->sourceVersion->version_name,
+                    'effective_date' => $saved['effective_date'] ?? $amendment->sourceVersion->effective_date?->toDateString(),
+                    'source_version_hash' => $saved['source_version_hash'] ?? null,
+                ];
+            })
+            ->values()
+            ->all();
         $amendments = $analysis->amendments
             ->sortBy([['sort_order', 'asc'], ['id', 'asc']])
             ->map(fn (AnalysisAmendment $amendment) => $this->amendmentSnapshot($amendment, $context->all()))
@@ -71,12 +87,7 @@ class DraftPackageInputBuilder
                 'retrieval_version' => $settings['retrieval_version'] ?? null,
                 'validator_version' => $settings['validator_version'] ?? null,
             ],
-            'source_snapshots' => [[
-                ...$sourceSnapshot,
-                'source_version_id' => $analysis->amendments->first()->source_version_id,
-                'version_name' => $analysis->amendments->first()->sourceVersion->version_name,
-                'source_version_hash' => data_get($settings, 'source_snapshots.0.source_version_hash'),
-            ]],
+            'source_snapshots' => $sourceSnapshots,
             'npa_profile' => $profile,
             'amendment_snapshots' => $amendments,
             'warnings' => array_values(array_unique(array_merge(

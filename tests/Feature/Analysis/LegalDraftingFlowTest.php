@@ -142,6 +142,9 @@ class LegalDraftingFlowTest extends TestCase
         $this->assertSame('Срок рассмотрения заявления составляет пять рабочих дней.', $amendment->proposed_text);
         $this->assertStringContainsString('десять рабочих дней', $amendment->current_text);
         $this->assertSame('resp_discovery', data_get($analysis->settings, 'discovery.response_id'));
+        $this->assertSame('sufficient', data_get($analysis->settings, 'context_sufficiency.status'));
+        $this->assertTrue(data_get($analysis->settings, 'context_sufficiency.mandatory_context_complete'));
+        $this->assertGreaterThan(0, data_get($analysis->settings, 'budget_audit.mandatory_used'));
         $this->assertCount(2, Http::recorded());
     }
 
@@ -164,6 +167,8 @@ class LegalDraftingFlowTest extends TestCase
         $analysis->refresh();
         $this->assertSame('completed', $analysis->status);
         $this->assertSame('insufficient', data_get($analysis->settings, 'source_sufficiency'));
+        $this->assertSame('insufficient', data_get($analysis->settings, 'context_sufficiency.status'));
+        $this->assertContains('discovery_candidate', data_get($analysis->settings, 'context_sufficiency.missing_elements'));
         $this->assertSame([], $analysis->amendments()->get()->all());
         $this->assertStringContainsString('компетенцию', data_get($analysis->settings, 'warnings.0'));
         $this->assertCount(1, Http::recorded());

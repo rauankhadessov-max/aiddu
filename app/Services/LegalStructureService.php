@@ -102,6 +102,86 @@ class LegalStructureService
         return array_values($outline);
     }
 
+    public function structuralGroups(array $fragments): array
+    {
+        $groups = [];
+
+        foreach ($fragments as $fragment) {
+            $type = $fragment->article !== null
+                ? 'article'
+                : ($fragment->appendix !== null ? 'appendix' : 'root');
+            $locator = $fragment->article ?? $fragment->appendix ?? 'root';
+            $scope = implode('|', [
+                $fragment->sourceVersionId,
+                $fragment->appendix,
+                $fragment->section,
+                $fragment->chapter,
+                $fragment->part,
+            ]);
+            $key = implode('|', [$scope, $type, $locator]);
+
+            if (! isset($groups[$key])) {
+                $groups[$key] = [
+                    'group_id' => hash('sha256', $key),
+                    'group_key' => $key,
+                    'source_id' => $fragment->sourceId,
+                    'source_version_id' => $fragment->sourceVersionId,
+                    'type' => $type,
+                    'locator' => (string) $locator,
+                    'scope_key' => $scope,
+                    'appendix' => $fragment->appendix,
+                    'section' => $fragment->section,
+                    'chapter' => $fragment->chapter,
+                    'part' => $fragment->part,
+                    'article' => $fragment->article,
+                    'fragments' => [],
+                ];
+            }
+
+            $groups[$key]['fragments'][] = $fragment;
+        }
+
+        foreach ($groups as &$group) {
+            usort($group['fragments'], fn (LegalContextFragment $a, LegalContextFragment $b) => $a->startOffset <=> $b->startOffset);
+        }
+        unset($group);
+
+        return array_values($groups);
+    }
+
+    public function compareNumericLocators(string $left, string $right): int
+    {
+        $leftParts = $this->numericLocatorParts($left);
+        $rightParts = $this->numericLocatorParts($right);
+
+        if ($leftParts === null || $rightParts === null) {
+            return strnatcasecmp($left, $right);
+        }
+
+        $length = max(count($leftParts), count($rightParts));
+
+        for ($index = 0; $index < $length; $index++) {
+            if (! array_key_exists($index, $leftParts)) {
+                return -1;
+            }
+
+            if (! array_key_exists($index, $rightParts)) {
+                return 1;
+            }
+
+            if ($leftParts[$index] !== $rightParts[$index]) {
+                return $leftParts[$index] <=> $rightParts[$index];
+            }
+        }
+
+        return 0;
+    }
+
+    public function isSupportedNumericLocator(string $locator): bool
+    {
+        return $this->numericLocatorParts($locator) !== null;
+    }
+
     public function locatorExists(array $fragments, int $sourceVersionId, array $locator): bool
     {
         foreach ($fragments as $fragment) {
@@ -354,5 +434,16 @@ class LegalStructureService
     private function normalizeLocator(string $value): string
     {
         return mb_strtolower(preg_replace('/[^\p{L}\p{N}.-]+/u', '', $value) ?? $value);
+    }
+
+    private function numericLocatorParts(string $locator): ?array
+    {
+        $normalized = str_replace(['–', '—', '−'], '-', trim($locator));
+
+        if (preg_match('/^\d+(?:-\d+)*$/', $normalized) !== 1) {
+            return null;
+        }
+
+        return array_map('intval', explode('-', $normalized));
     }
 }

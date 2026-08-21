@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Data\LegalContextFragment;
 use App\Data\LegalRetrievalResult;
+use App\Data\LegalStructuralContextPlan;
 use App\Models\Analysis;
 use App\Models\SourceVersion;
 use Normalizer;
@@ -16,29 +17,169 @@ class LegalRetrievalService
         Analysis $analysis,
         ?string $additionalQuery = null,
         array $requiredFragmentIds = [],
+        ?LegalStructuralContextPlan $structuralPlan = null,
     ): LegalRetrievalResult {
         $analysis->loadMissing(['document', 'sourceVersions.source']);
 
         $query = trim($this->buildQuery($analysis)."\n".($additionalQuery ?? ''));
         $profile = $this->queryProfile($query);
+        $allFragments = $this->allFragments($analysis);
+        $corpus = $this->corpusStatistics($allFragments);
         $scored = [];
+        $scores = [];
         $required = array_fill_keys($requiredFragmentIds, true);
 
-        foreach ($analysis->sourceVersions as $version) {
-            foreach ($this->split($version) as $fragment) {
-                $score = $this->scoreFragment($fragment, $profile);
+        foreach ($allFragments as $fragment) {
+            $score = $this->scoreFragment($fragment, $profile, $corpus);
 
-                if (isset($required[$fragment->fragmentId])) {
-                    $score = max($score, (float) config('legal_analysis.discovery.required_fragment_score', 1000));
-                }
+            if (isset($required[$fragment->fragmentId])) {
+                $score = max($score, (float) config('legal_analysis.discovery.required_fragment_score', 1000));
+            }
 
-                if ($score > 0) {
-                    $scored[] = $fragment->withScore($score);
-                }
+            $scores[$fragment->fragmentId] = $score;
+
+            if ($score > 0) {
+                $scored[] = $fragment->withScore($score);
             }
         }
 
-        $selected = $this->selectWithinBudget($scored);
+        usort($scored, fn (LegalContextFragment $a, LegalContextFragment $b) => $b->score <=> $a->score
+            ?: $a->sourceVersionId <=> $b->sourceVersionId
+            ?: $a->startOffset <=> $b->startOffset
+            ?: strcmp($a->fragmentId, $b->fragmentId));
+
+        $totalBudget = (int) config('legal_analysis.retrieval.context_budget_chars', 30000);
+        $reservedBudget = (int) config('legal_analysis.retrieval.structural_reserved_chars', 18000);
+        $configuredOptionalBudget = (int) config('legal_analysis.retrieval.optional_relevance_chars', 12000);
+        $topK = (int) config('legal_analysis.retrieval.top_k', 30);
+        $mandatoryGroups = $structuralPlan?->mandatoryGroups ?? [];
+        $mandatoryIds = [];
+        $mandatoryRoles = [];
+        $mandatoryGroupAudit = [];
+        $mandatoryChars = 0;
+
+        foreach ($mandatoryGroups as $group) {
+            $groupChars = 0;
+            $groupIds = [];
+
+            foreach ($group['fragments'] as $fragment) {
+                $groupIds[] = $fragment->fragmentId;
+
+                if (! isset($mandatoryIds[$fragment->fragmentId])) {
+                    $mandatoryIds[$fragment->fragmentId] = $fragment;
+                    $mandatoryRoles[$fragment->fragmentId] = $group['role'];
+                    $groupChars += $this->promptChars($fragment);
+                }
+            }
+
+            $mandatoryChars += $groupChars;
+            $mandatoryGroupAudit[] = [
+                'group_id' => $group['group_id'],
+                'source_version_id' => $group['source_version_id'],
+                'type' => $group['type'],
+                'locator' => $group['locator'],
+                'role' => $group['role'],
+                'expected_fragment_ids' => $groupIds,
+                'expected_chars' => $groupChars,
+                'selected_fragment_ids' => [],
+                'complete' => false,
+            ];
+        }
+
+        $mandatoryFits = $mandatoryChars <= $totalBudget;
+        $selectedMap = [];
+        $mandatoryUsed = 0;
+
+        if ($mandatoryFits) {
+            foreach ($mandatoryIds as $fragmentId => $fragment) {
+                $selectedMap[$fragmentId] = $fragment->withScore($scores[$fragmentId] ?? 0.0);
+                $mandatoryUsed += $this->promptChars($fragment);
+            }
+
+            foreach ($mandatoryGroupAudit as &$groupAudit) {
+                $groupAudit['selected_fragment_ids'] = $groupAudit['expected_fragment_ids'];
+                $groupAudit['complete'] = true;
+            }
+            unset($groupAudit);
+        }
+
+        $planApplicable = $structuralPlan?->isApplicable() ?? false;
+        $optionalLimit = $planApplicable
+            ? min($configuredOptionalBudget, max(0, $totalBudget - $mandatoryUsed))
+            : $totalBudget;
+        $optionalUsed = 0;
+        $optionalCount = 0;
+        $ranks = [];
+        $optionalDecisions = [];
+
+        foreach ($scored as $index => $fragment) {
+            $ranks[$fragment->fragmentId] = $index + 1;
+
+            if (isset($mandatoryIds[$fragment->fragmentId])) {
+                continue;
+            }
+
+            if ($optionalCount >= $topK) {
+                $optionalDecisions[$fragment->fragmentId] = 'top_k';
+
+                continue;
+            }
+
+            $chars = $this->promptChars($fragment);
+
+            if ($optionalUsed + $chars > $optionalLimit) {
+                $optionalDecisions[$fragment->fragmentId] = 'budget_skip';
+
+                continue;
+            }
+
+            $selectedMap[$fragment->fragmentId] = $fragment;
+            $optionalUsed += $chars;
+            $optionalCount++;
+            $optionalDecisions[$fragment->fragmentId] = 'selected_relevance';
+        }
+
+        $selected = array_values($selectedMap);
+        usort($selected, fn (LegalContextFragment $a, LegalContextFragment $b) => $a->sourceVersionId <=> $b->sourceVersionId
+            ?: $a->startOffset <=> $b->startOffset
+            ?: strcmp($a->fragmentId, $b->fragmentId));
+
+        $mandatoryComplete = $planApplicable
+            && $mandatoryGroups !== []
+            && $mandatoryFits
+            && ($structuralPlan === null || $structuralPlan->sufficiency->status !== 'insufficient');
+        $contextSufficiency = $structuralPlan?->sufficiency->withMandatorySelection(
+            $mandatoryComplete,
+            $mandatoryFits ? [] : ['mandatory_structural_context'],
+            $mandatoryFits ? [] : ['mandatory_context_exceeds_total_budget'],
+        );
+        $fragmentAudit = [];
+
+        foreach ($allFragments as $fragment) {
+            $id = $fragment->fragmentId;
+            $mandatory = isset($mandatoryIds[$id]);
+            $selectedFragment = isset($selectedMap[$id]);
+            $reason = $mandatory
+                ? ($mandatoryFits ? $mandatoryRoles[$id] : 'mandatory_group_oversize')
+                : (($scores[$id] ?? 0.0) <= 0
+                    ? 'zero_relevance'
+                    : ($optionalDecisions[$id] ?? 'budget_skip'));
+            $fragmentAudit[] = [
+                'fragment_id' => $id,
+                'source_version_id' => $fragment->sourceVersionId,
+                'article' => $fragment->article,
+                'paragraph' => $fragment->paragraph,
+                'subparagraph' => $fragment->subparagraph,
+                'role' => $mandatory ? 'mandatory' : 'optional',
+                'mandatory_reason' => $mandatory ? $mandatoryRoles[$id] : null,
+                'score' => round($scores[$id] ?? 0.0, 6),
+                'rank' => $ranks[$id] ?? null,
+                'selected' => $selectedFragment,
+                'reason' => $reason,
+                'prompt_chars' => $this->promptChars($fragment),
+            ];
+        }
+
         $selectedVersionIds = array_fill_keys(array_map(
             fn (LegalContextFragment $fragment) => $fragment->sourceVersionId,
             $selected,
@@ -73,6 +214,21 @@ class LegalRetrievalService
                 fn (LegalContextFragment $fragment) => mb_strlen($fragment->toPromptBlock()),
                 $selected,
             )),
+            retrievalAudit: [
+                'groups' => $mandatoryGroupAudit,
+                'fragments' => $fragmentAudit,
+            ],
+            budgetAudit: [
+                'total_limit' => $totalBudget,
+                'structural_reserved' => $reservedBudget,
+                'optional_limit' => $optionalLimit,
+                'mandatory_required' => $mandatoryChars,
+                'mandatory_used' => $mandatoryUsed,
+                'optional_used' => $optionalUsed,
+                'total_used' => $mandatoryUsed + $optionalUsed,
+                'mandatory_borrowed_from_optional' => max(0, $mandatoryUsed - $reservedBudget),
+            ],
+            contextSufficiency: $contextSufficiency,
         );
     }
 
@@ -450,20 +606,28 @@ class LegalRetrievalService
         return $locators;
     }
 
-    private function scoreFragment(LegalContextFragment $fragment, array $profile): float
+    private function scoreFragment(LegalContextFragment $fragment, array $profile, array $corpus): float
     {
         $weights = config('legal_analysis.retrieval.weights');
-        $frequencyLimit = (int) config('legal_analysis.retrieval.max_term_frequency', 3);
-        $termCounts = array_count_values($this->tokenize($fragment->text));
+        $terms = $this->tokenize($fragment->text);
+        $termCounts = array_count_values($terms);
         $matchedTerms = array_values(array_intersect($profile['terms'], array_keys($termCounts)));
         $score = 0.0;
+        $k1 = (float) config('legal_analysis.retrieval.bm25.k1', 1.2);
+        $b = (float) config('legal_analysis.retrieval.bm25.b', 0.75);
+        $documentLength = max(1, count($terms));
+        $averageLength = max(1.0, $corpus['average_length']);
 
         foreach ($matchedTerms as $term) {
-            $score += min($frequencyLimit, $termCounts[$term]) * $weights['term_frequency'];
+            $frequency = $termCounts[$term];
+            $documentFrequency = $corpus['document_frequency'][$term] ?? 0;
+            $idf = log(1 + (($corpus['documents'] - $documentFrequency + 0.5) / ($documentFrequency + 0.5)));
+            $normalization = $frequency + $k1 * (1 - $b + $b * ($documentLength / $averageLength));
+            $score += $idf * (($frequency * ($k1 + 1)) / max(0.000001, $normalization));
         }
 
         if ($profile['terms'] !== []) {
-            $score += (count($matchedTerms) / count($profile['terms'])) * $weights['coverage'];
+            $score += (count($matchedTerms) / count($profile['terms'])) * ($weights['coverage'] ?? 0);
         }
 
         $normalizedFragment = $this->normalize($fragment->text);
@@ -484,11 +648,35 @@ class LegalRetrievalService
             return 0.0;
         }
 
-        $baseLength = max(1, (int) config('legal_analysis.retrieval.length_normalization_chars', 1800));
-        $excessRatio = max(0, mb_strlen($fragment->text) - $baseLength) / $baseLength;
-        $divisor = 1 + ($excessRatio * $weights['length_penalty']);
+        return round($score, 6);
+    }
 
-        return round($score / $divisor, 6);
+    private function corpusStatistics(array $fragments): array
+    {
+        $documentFrequency = [];
+        $totalLength = 0;
+
+        foreach ($fragments as $fragment) {
+            $terms = $this->tokenize($fragment->text);
+            $totalLength += count($terms);
+
+            foreach (array_unique($terms) as $term) {
+                $documentFrequency[$term] = ($documentFrequency[$term] ?? 0) + 1;
+            }
+        }
+
+        $documents = max(1, count($fragments));
+
+        return [
+            'documents' => $documents,
+            'document_frequency' => $documentFrequency,
+            'average_length' => $totalLength / $documents,
+        ];
+    }
+
+    private function promptChars(LegalContextFragment $fragment): int
+    {
+        return mb_strlen($fragment->toPromptBlock()) + 40;
     }
 
     private function containsExactPhrase(string $text, string $phrase): bool

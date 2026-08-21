@@ -11,6 +11,7 @@ class LegalDiscoveryService
     public function __construct(
         private readonly LegalRetrievalService $retrievalService,
         private readonly LegalStructureService $structureService,
+        private readonly LegalStructuralDiscoveryService $structuralDiscoveryService,
         private readonly OpenAIService $openAIService,
     ) {}
 
@@ -72,15 +73,25 @@ PROMPT;
         $sufficiency = in_array($result['source_sufficiency'] ?? null, ['sufficient', 'partial', 'insufficient'], true)
             ? $result['source_sufficiency']
             : 'insufficient';
+        $structuralPlan = $this->structuralDiscoveryService->planFromCandidates($analysis, $candidateIds);
         $retrieval = $this->retrievalService->retrieve(
-            $analysis,
-            implode("\n", $queries),
-            $candidateIds,
+            analysis: $analysis,
+            additionalQuery: implode("\n", $queries),
+            structuralPlan: $structuralPlan,
         );
 
         if ($retrieval->isEmpty()) {
             $sufficiency = 'insufficient';
             $warnings[] = 'По выбранной нормативной базе не найден подтверждённый контекст для разработки поправок.';
+        }
+
+        if ($retrieval->contextSufficiency?->status === 'insufficient') {
+            $sufficiency = 'insufficient';
+            $warnings = array_merge(
+                $warnings,
+                $retrieval->contextSufficiency->reasons,
+                $retrieval->contextSufficiency->missingElements,
+            );
         }
 
         return new LegalDiscoveryResult(
@@ -93,6 +104,7 @@ PROMPT;
             usage: $response['usage'] ?? [],
             model: $response['model'] ?? null,
             requestPayloadHash: $response['request_payload_hash'] ?? null,
+            contextSufficiency: $retrieval->contextSufficiency?->toArray(),
         );
     }
 
@@ -170,6 +182,7 @@ PROMPT;
             usage: [],
             model: null,
             requestPayloadHash: null,
+            contextSufficiency: null,
         );
     }
 }

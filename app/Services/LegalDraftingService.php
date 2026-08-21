@@ -15,6 +15,7 @@ class LegalDraftingService
     public function __construct(
         private readonly LegalRetrievalService $retrievalService,
         private readonly LegalDiscoveryService $discoveryService,
+        private readonly LegalStructuralDiscoveryService $structuralDiscoveryService,
         private readonly OpenAIService $openAIService,
         private readonly LegalCitationValidator $citationValidator,
         private readonly LegalAmendmentValidator $amendmentValidator,
@@ -34,7 +35,23 @@ class LegalDraftingService
                 return $this->insufficientResult($retrieval, $discovery);
             }
         } else {
-            $retrieval = $this->retrievalService->retrieve($analysis);
+            $structuralPlan = $this->structuralDiscoveryService->plan($analysis);
+            $retrieval = $this->retrievalService->retrieve(
+                analysis: $analysis,
+                structuralPlan: $structuralPlan,
+            );
+
+            if ($retrieval->contextSufficiency?->status === 'insufficient') {
+                return $this->insufficientResult(
+                    $retrieval,
+                    null,
+                    array_values(array_unique(array_merge(
+                        $retrieval->contextSufficiency->reasons,
+                        $retrieval->contextSufficiency->missingElements,
+                        $retrieval->contextSufficiency->ambiguities,
+                    ))),
+                );
+            }
 
             if ($retrieval->isEmpty()) {
                 return $this->insufficientResult(
@@ -161,6 +178,10 @@ class LegalDraftingService
     private function prompt(Analysis $analysis, string $scenario, LegalRetrievalResult $retrieval): string
     {
         $document = $analysis->document;
+        $contextSufficiency = json_encode(
+            $retrieval->contextSufficiency?->toArray() ?? ['status' => 'not_applicable'],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        );
         $scenarioRules = $scenario === 'amendment_review'
             ? <<<'RULES'
 Проверь готовую предлагаемую редакцию. Даже при отсутствии противоречий оцени юридическую определённость, однозначность, полноту регулирования, внутреннюю согласованность и нормотворческую технику. Если улучшение не требуется, используй disposition=keep_as_proposed. Если требуется — disposition=revise и дай итоговый улучшенный текст.
@@ -185,6 +206,9 @@ RULES;
 TRUSTED НОРМАТИВНЫЙ КОНТЕКСТ:
 {$retrieval->promptContext()}
 
+PROGRAMMATIC CONTEXT SUFFICIENCY:
+{$contextSufficiency}
+
 Правила:
 1. Используй только переданный контекст и выбранные SourceVersion.
 2. Не компенсируй отсутствующие НПА внешними знаниями.
@@ -194,6 +218,7 @@ TRUSTED НОРМАТИВНЫЙ КОНТЕКСТ:
 6. quote должен дословно содержаться в fragment после нормализации пробелов.
 7. При недостаточности верни source_sufficiency=insufficient, amendments=[] и конкретные warnings без выдуманного названия НПА.
 8. Поле current_text не формируй: оно будет получено приложением из trusted fragments.
+9. Ты не можешь повысить programmatic context_sufficiency. При программной недостаточности не формируй amendments.
 PROMPT;
     }
 

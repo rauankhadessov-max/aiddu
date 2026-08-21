@@ -14,6 +14,7 @@ final readonly class LegalDiscoveryResult
         public array $usage,
         public ?string $model,
         public ?string $requestPayloadHash,
+        public ?array $contextSufficiency = null,
     ) {}
 
     public function snapshot(): array
@@ -27,6 +28,7 @@ final readonly class LegalDiscoveryResult
             'usage' => $this->usage,
             'model' => $this->model,
             'request_payload_hash' => $this->requestPayloadHash,
+            'context_sufficiency' => $this->contextSufficiency,
         ];
     }
 }

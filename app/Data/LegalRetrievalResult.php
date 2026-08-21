@@ -11,8 +11,10 @@ final readonly class LegalRetrievalResult
         public string $contextHash,
         public string $retrievalVersion,
         public int $totalChars,
-    ) {
-    }
+        public array $retrievalAudit = [],
+        public array $budgetAudit = [],
+        public ?ContextSufficiencyResult $contextSufficiency = null,
+    ) {}
 
     public function isEmpty(): bool
     {
@@ -44,6 +46,9 @@ final readonly class LegalRetrievalResult
             'query_hash' => $this->queryHash,
             'context_hash' => $this->contextHash,
             'total_chars' => $this->totalChars,
+            'retrieval_audit' => $this->retrievalAudit,
+            'budget_audit' => $this->budgetAudit,
+            'context_sufficiency' => $this->contextSufficiency?->toArray(),
             'source_snapshots' => $this->sourceSnapshots,
             'retrieval_context' => array_map(
                 fn (LegalContextFragment $fragment) => $fragment->toArray(),

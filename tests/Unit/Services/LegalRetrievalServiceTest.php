@@ -64,6 +64,8 @@ LAW);
 
         $this->assertTrue($result->isEmpty());
         $this->assertSame([], $result->fragments);
+        $this->assertSame('zero_relevance', data_get($result->retrievalAudit, 'fragments.0.reason'));
+        $this->assertFalse(data_get($result->retrievalAudit, 'fragments.0.selected'));
     }
 
     public function test_exact_phrase_and_article_reference_boost_matching_fragment(): void
@@ -84,6 +86,30 @@ LAW,
         $this->assertNotNull($articleTwelve);
         $this->assertNotNull($articleThirteen);
         $this->assertGreaterThan($articleThirteen->score, $articleTwelve->score);
+    }
+
+    public function test_bm25_reduces_weight_of_common_terms_and_prioritizes_rare_legal_term(): void
+    {
+        [$analysis] = $this->fixture(<<<'LAW'
+Статья 1. Общие положения
+1. Оператор рассматривает проект и принимает решение.
+
+Статья 2. Полномочия оператора
+1. Оператор рассматривает проект и уведомляет заявителя.
+
+Статья 3. Кадастровая идентификация
+1. Уникальный кадастровый идентификатор подтверждает границы земельного участка.
+LAW,
+            instruction: 'Проверить уникальный кадастровый идентификатор земельного участка.',
+            documentText: 'Требуется кадастровый идентификатор.',
+        );
+
+        $result = app(LegalRetrievalService::class)->retrieve($analysis);
+        $articleThree = collect($result->fragments)->firstWhere('article', '3');
+        $articleOne = collect($result->fragments)->firstWhere('article', '1');
+
+        $this->assertNotNull($articleThree);
+        $this->assertGreaterThan($articleOne?->score ?? 0, $articleThree->score);
     }
 
     public function test_global_budget_keeps_whole_fragments_across_multiple_source_versions(): void

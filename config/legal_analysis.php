@@ -1,14 +1,16 @@
 <?php
 
 return [
-    'prompt_version' => 'legal-drafting-v3',
-    'retrieval_version' => 'lexical-structural-v3',
+    'prompt_version' => 'legal-drafting-v4',
+    'retrieval_version' => 'structural-bm25-v3',
     'citation_validator_version' => 'citation-v3',
     'drafting_validator_version' => 'amendment-v1',
     'timeout_seconds' => 180,
 
     'retrieval' => [
         'context_budget_chars' => 30000,
+        'structural_reserved_chars' => 18000,
+        'optional_relevance_chars' => 12000,
         'top_k' => 30,
         'max_fragment_chars' => 5000,
         'min_fragment_chars' => 30,
@@ -17,6 +19,10 @@ return [
         'max_exact_phrases' => 20,
         'reliable_locator_matches' => 2,
         'length_normalization_chars' => 1800,
+        'bm25' => [
+            'k1' => 1.2,
+            'b' => 0.75,
+        ],
         'weights' => [
             'term_frequency' => 1.0,
             'coverage' => 12.0,

@@ -6,6 +6,7 @@ use App\Http\Controllers\DocumentController;
 use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SourceController;
 use App\Http\Controllers\DraftPackageController;
+use App\Http\Controllers\ArtifactController;
 
 
 Route::get('/', function () {
@@ -65,6 +66,12 @@ Route::put('/sources/{source}/versions/{version}', [SourceController::class, 'up
 
     Route::post('/analyses/{analysis}/draft-package', [DraftPackageController::class, 'store'])
         ->name('draft-packages.store');
+
+    Route::get('/draft-packages/{draftPackage}', [DraftPackageController::class, 'show'])
+        ->name('draft-packages.show');
+
+    Route::get('/artifacts/{artifact}', [ArtifactController::class, 'show'])
+        ->name('artifacts.show');
 
     Route::get('/workspaces', [WorkspaceController::class, 'index'])
         ->name('workspaces.index');

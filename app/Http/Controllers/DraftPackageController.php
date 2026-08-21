@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\Analysis;
+use App\Models\DraftPackage;
 use App\Services\DraftPackageService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
@@ -11,6 +12,14 @@ use Throwable;
 
 class DraftPackageController extends Controller
 {
+    public function show(DraftPackage $draftPackage)
+    {
+        Gate::authorize('view', $draftPackage);
+        $draftPackage->load(['analysis.document', 'artifacts']);
+
+        return view('draft-packages.show', compact('draftPackage'));
+    }
+
     public function store(Request $request, Analysis $analysis, DraftPackageService $service)
     {
         Gate::authorize('createDraftPackage', $analysis);

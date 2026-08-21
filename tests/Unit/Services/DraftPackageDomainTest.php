@@ -28,6 +28,7 @@ class DraftPackageDomainTest extends TestCase
         $this->assertSame('Закон Республики Казахстан', $draft['act_type']);
         $this->assertStringContainsString('пункт 1 дополнить подпунктом 7-2)', $draft['commands'][0]['text']);
         $this->assertStringContainsString('Дополнить статьей 30-1', $draft['commands'][1]['text']);
+        $this->assertStringContainsString($input['amendment_snapshots'][1]['proposed_text'], $draft['commands'][1]['text']);
         $this->assertSame(['effective_date_rule'], $draft['requires_user_input']);
     }
 

@@ -97,6 +97,67 @@ class DraftPackageGenerationTest extends TestCase
         $this->assertDatabaseCount('artifacts', 2);
     }
 
+    public function test_analysis_page_shows_generation_button_then_artifact_links(): void
+    {
+        [$user, $analysis] = $this->fixture();
+        $this->actingAs($user)->get(route('analyses.show', $analysis))
+            ->assertOk()
+            ->assertSee('Сформировать пакет документов')
+            ->assertSee(route('draft-packages.store', $analysis), false);
+
+        $this->fakeValidJustifications();
+        $this->actingAs($user)->post(route('draft-packages.store', $analysis));
+        $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+
+        $response = $this->actingAs($user)->get(route('analyses.show', $analysis));
+        $response->assertOk()->assertSee('Сравнительная таблица — Открыть');
+        foreach ($package->artifacts as $artifact) {
+            $response->assertSee(route('artifacts.show', $artifact), false);
+        }
+    }
+
+    public function test_owner_can_open_package_and_safe_html_previews(): void
+    {
+        [$user, $analysis] = $this->fixture();
+        $analysis->amendments()->first()->update([
+            'proposed_text' => '7-2) безопасный текст <script>alert(1)</script>;',
+        ]);
+        $this->fakeValidJustifications();
+        $this->actingAs($user)->post(route('draft-packages.store', $analysis));
+        $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+
+        $this->actingAs($user)->get(route('draft-packages.show', $package))
+            ->assertOk()
+            ->assertSee('Сравнительная таблица')
+            ->assertSee('Проект НПА');
+
+        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table');
+        $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa');
+        $this->actingAs($user)->get(route('artifacts.show', $table))
+            ->assertOk()
+            ->assertSee('Отсутствует')
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false);
+        $this->actingAs($user)->get(route('artifacts.show', $draft))
+            ->assertOk()
+            ->assertSee('Проект')
+            ->assertSee('Закон Республики Казахстан')
+            ->assertSee('Статья 1.')
+            ->assertSee('effective_date_rule');
+    }
+
+    public function test_foreign_user_cannot_view_package_or_artifacts(): void
+    {
+        [$owner, $analysis] = $this->fixture();
+        $this->fakeValidJustifications();
+        $this->actingAs($owner)->post(route('draft-packages.store', $analysis));
+        $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+        $foreign = User::factory()->create();
+
+        $this->actingAs($foreign)->get(route('draft-packages.show', $package))->assertForbidden();
+        $this->actingAs($foreign)->get(route('artifacts.show', $package->artifacts->first()))->assertForbidden();
+    }
+
     private function fixture(): array
     {
         $user = User::factory()->create();
@@ -239,5 +300,18 @@ class DraftPackageGenerationTest extends TestCase
                 ]],
             ]],
         ];
+    }
+
+    private function fakeValidJustifications(): void
+    {
+        config()->set('services.openai.key', 'fake-key');
+        Http::fake(function (Request $request) {
+            $ids = data_get($request->data(), 'text.format.schema.properties.justifications.items.properties.amendment_id.enum');
+            return Http::response($this->apiResponse(array_map(fn ($id) => [
+                'amendment_id' => $id,
+                'text' => 'В целях устранения правовой неопределённости и определения порядка регулирования.',
+                'warnings' => [],
+            ], $ids)), 200);
+        });
     }
 }

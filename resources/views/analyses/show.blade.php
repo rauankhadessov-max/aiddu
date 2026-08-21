@@ -156,6 +156,44 @@
 
 @if ($analysis->status === 'completed')
 
+    @if ($analysis->amendments->isNotEmpty())
+        <section class="rounded-2xl border border-indigo-200 bg-indigo-50 p-6">
+            <h2 class="text-xl font-bold text-slate-900">Пакет документов</h2>
+
+            @if ($analysis->draftPackage)
+                <p class="mt-2 text-sm text-slate-600">
+                    Пакет сформирован на основании подтверждённых поправок этого анализа.
+                </p>
+
+                <div class="mt-5 flex flex-wrap gap-3">
+                    @foreach ($analysis->draftPackage->artifacts as $artifact)
+                        <a
+                            href="{{ route('artifacts.show', $artifact) }}"
+                            class="rounded-xl border border-indigo-300 bg-white px-4 py-3 text-sm font-semibold text-indigo-700 hover:border-indigo-500"
+                        >
+                            {{ $artifact->artifact_type === 'comparative_table' ? 'Сравнительная таблица' : 'Проект НПА' }} — Открыть
+                        </a>
+                    @endforeach
+                </div>
+
+                <a href="{{ route('draft-packages.show', $analysis->draftPackage) }}" class="mt-4 inline-block text-sm font-semibold text-indigo-700 hover:text-indigo-500">
+                    Открыть весь пакет
+                </a>
+            @else
+                <p class="mt-2 text-sm text-slate-600">
+                    Сформируйте сравнительную таблицу и структурированный проект НПА без повторного юридического анализа.
+                </p>
+
+                <form method="POST" action="{{ route('draft-packages.store', $analysis) }}" class="mt-5">
+                    @csrf
+                    <button type="submit" class="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-500">
+                        Сформировать пакет документов
+                    </button>
+                </form>
+            @endif
+        </section>
+    @endif
+
     <section class="space-y-4">
         <div class="flex items-center justify-between">
             <h2 class="text-xl font-bold text-slate-900">Предлагаемые поправки</h2>

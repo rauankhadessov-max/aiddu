@@ -78,6 +78,6 @@ class AmendmentCommandCompiler
 
     private function quoteText(?string $text): string
     {
-        return rtrim(trim((string) $text), '.');
+        return trim((string) $text);
     }
 }

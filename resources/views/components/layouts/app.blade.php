@@ -9,14 +9,72 @@
     <title>{{ $title ?? 'AI DDU Assistant' }}</title>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
+
+    <style>
+        .legal-text-block + .legal-text-block,
+        .legal-command-block + .legal-command-block { margin-top: 0.75rem; }
+        .legal-command-block--normative,
+        .legal-command-block--quotation_start,
+        .legal-command-block--norm_heading,
+        .legal-command-block--norm_item { padding-left: 1.5rem; }
+
+        @media print {
+            html, body { background: #fff !important; color: #000 !important; }
+            .app-sidebar, .app-header, .app-mobile-nav, .print-controls { display: none !important; }
+            .app-shell, .app-main {
+                display: block !important;
+                min-height: 0 !important;
+                width: 100% !important;
+                padding: 0 !important;
+                margin: 0 !important;
+            }
+            .print-surface { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
+            .comparative-table-wrap { overflow: visible !important; }
+            .comparative-table {
+                width: 100% !important;
+                min-width: 0 !important;
+                table-layout: fixed;
+                border-collapse: collapse;
+                font-size: 8.5pt;
+                line-height: 1.3;
+            }
+            .comparative-table thead { display: table-header-group; }
+            .comparative-table th, .comparative-table td {
+                min-width: 0 !important;
+                padding: 2.5mm !important;
+                border: 0.2mm solid #777 !important;
+                overflow-wrap: anywhere;
+                vertical-align: top;
+            }
+            .comparative-table th:nth-child(1) { width: 4%; }
+            .comparative-table th:nth-child(2) { width: 14%; }
+            .comparative-table th:nth-child(3) { width: 24%; }
+            .comparative-table th:nth-child(4) { width: 29%; }
+            .comparative-table th:nth-child(5) { width: 29%; }
+            .comparative-table tr { break-inside: avoid-page; }
+            .legal-document {
+                width: 100% !important;
+                max-width: none !important;
+                padding: 0 !important;
+                font-family: "Times New Roman", Times, serif;
+                font-size: 12pt;
+                line-height: 1.5;
+            }
+            .legal-project-mark, .legal-act-type, .legal-act-title, .legal-command-block {
+                orphans: 3;
+                widows: 3;
+            }
+            .legal-intro, .legal-command-block { text-align: justify; }
+        }
+    </style>
 </head>
 
 <body class="bg-slate-100 font-sans text-slate-900 antialiased">
 
-<div class="min-h-screen lg:flex">
+<div class="app-shell min-h-screen lg:flex">
 
     {{-- Боковая панель --}}
-    <aside class="hidden w-72 shrink-0 flex-col bg-slate-950 text-white lg:flex">
+    <aside class="app-sidebar hidden w-72 shrink-0 flex-col bg-slate-950 text-white lg:flex">
 
         <div class="border-b border-white/10 px-6 py-6">
             <a href="{{ route('dashboard') }}" class="block">
@@ -164,7 +222,7 @@
     <div class="min-w-0 flex-1">
 
         {{-- Верхняя панель --}}
-        <header class="border-b border-slate-200 bg-white">
+        <header class="app-header border-b border-slate-200 bg-white">
 
             <div class="flex min-h-20 items-center justify-between gap-4 px-4 sm:px-6 lg:px-8">
 
@@ -203,7 +261,7 @@
         </header>
 
         {{-- Содержимое страницы --}}
-        <main class="p-4 sm:p-6 lg:p-8">
+        <main class="app-main p-4 sm:p-6 lg:p-8">
             {{ $slot }}
         </main>
 
@@ -211,7 +269,7 @@
 
 </div>
 
-<nav class="border-t border-white/10 bg-slate-950 px-4 py-3 text-white lg:hidden">
+<nav class="app-mobile-nav border-t border-white/10 bg-slate-950 px-4 py-3 text-white lg:hidden">
     <div class="flex gap-2 overflow-x-auto">
         <a href="{{ route('workspaces.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Рабочие дела</a>
         <a href="{{ route('workspaces.index', ['start' => 'analysis']) }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Новый анализ</a>

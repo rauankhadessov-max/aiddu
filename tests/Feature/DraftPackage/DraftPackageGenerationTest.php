@@ -9,6 +9,8 @@ use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\DraftPackageInputBuilder;
+use App\Services\LegalAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -26,6 +28,7 @@ class DraftPackageGenerationTest extends TestCase
         Http::fake(function (Request $request) use (&$calls) {
             $calls++;
             $ids = data_get($request->data(), 'text.format.schema.properties.justifications.items.properties.amendment_id.enum');
+
             return Http::response($this->apiResponse(array_map(fn ($id) => [
                 'amendment_id' => $id,
                 'text' => $id === $ids[0]
@@ -83,6 +86,7 @@ class DraftPackageGenerationTest extends TestCase
         config()->set('services.openai.key', 'fake-key');
         Http::fake(function (Request $request) {
             $ids = data_get($request->data(), 'text.format.schema.properties.justifications.items.properties.amendment_id.enum');
+
             return Http::response($this->apiResponse(array_map(fn ($id) => [
                 'amendment_id' => $id,
                 'text' => 'В целях устранения правовой неопределённости и определения порядка регулирования.',
@@ -125,17 +129,43 @@ class DraftPackageGenerationTest extends TestCase
         $this->fakeValidJustifications();
         $this->actingAs($user)->post(route('draft-packages.store', $analysis));
         $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table');
+        $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa');
+        $canonicalBefore = $package->artifacts->mapWithKeys(fn ($artifact) => [$artifact->id => $artifact->content])->all();
+        $hashesBefore = $package->artifacts->mapWithKeys(fn ($artifact) => [
+            $artifact->id => app(DraftPackageInputBuilder::class)->hashPayload($artifact->content),
+        ])->all();
+        $timestampsBefore = [
+            'analysis' => $analysis->fresh()->getRawOriginal('updated_at'),
+            'package' => $package->getRawOriginal('updated_at'),
+            'artifacts' => $package->artifacts->mapWithKeys(fn ($artifact) => [$artifact->id => $artifact->getRawOriginal('updated_at')])->all(),
+            'amendments' => $analysis->amendments()->orderBy('id')->get()->mapWithKeys(fn ($amendment) => [
+                $amendment->id => $amendment->getRawOriginal('updated_at'),
+            ])->all(),
+        ];
+
+        Http::fake();
+        $legalAnalysis = \Mockery::mock(LegalAnalysisService::class);
+        $legalAnalysis->shouldNotReceive('run');
+        $this->app->instance(LegalAnalysisService::class, $legalAnalysis);
 
         $this->actingAs($user)->get(route('draft-packages.show', $package))
             ->assertOk()
             ->assertSee('Сравнительная таблица')
-            ->assertSee('Проект НПА');
+            ->assertSee('Проект НПА')
+            ->assertSee('Требуется заполнить пользователем')
+            ->assertSee('Необходимо определить порядок и срок введения НПА в действие')
+            ->assertDontSee('effective_date_rule');
 
-        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table');
-        $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa');
         $this->actingAs($user)->get(route('artifacts.show', $table))
             ->assertOk()
             ->assertSee('Отсутствует')
+            ->assertSee('статья 26, пункт 1, подпункт 7-2)')
+            ->assertSee('статья 30-1')
+            ->assertDontSee('глава 6, статья', false)
+            ->assertSee('Юридические предупреждения')
+            ->assertSee('Проверить согласованность новой статьи с иными нормами.')
+            ->assertSee('legal-text-block', false)
             ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
             ->assertDontSee('<script>alert(1)</script>', false);
         $this->actingAs($user)->get(route('artifacts.show', $draft))
@@ -143,7 +173,30 @@ class DraftPackageGenerationTest extends TestCase
             ->assertSee('Проект')
             ->assertSee('Закон Республики Казахстан')
             ->assertSee('Статья 1.')
-            ->assertSee('effective_date_rule');
+            ->assertSee('Необходимо определить порядок и срок введения НПА в действие')
+            ->assertDontSee('effective_date_rule')
+            ->assertSee('О внесении изменений и дополнений в Закон Республики Казахстан «О долевом участии в жилищном строительстве»')
+            ->assertSee('legal-command-block--instruction', false)
+            ->assertSee('legal-command-block--norm_item', false)
+            ->assertSee('data-command-number="1"', false)
+            ->assertSee('data-command-number="2"', false)
+            ->assertSee('&lt;script&gt;alert(1)&lt;/script&gt;', false)
+            ->assertDontSee('<script>alert(1)</script>', false);
+
+        Http::assertNothingSent();
+        $package->refresh()->load('artifacts');
+        $this->assertSame($canonicalBefore, $package->artifacts->mapWithKeys(fn ($artifact) => [$artifact->id => $artifact->content])->all());
+        $this->assertSame($hashesBefore, $package->artifacts->mapWithKeys(fn ($artifact) => [
+            $artifact->id => app(DraftPackageInputBuilder::class)->hashPayload($artifact->content),
+        ])->all());
+        $this->assertSame($timestampsBefore, [
+            'analysis' => $analysis->fresh()->getRawOriginal('updated_at'),
+            'package' => $package->getRawOriginal('updated_at'),
+            'artifacts' => $package->artifacts->mapWithKeys(fn ($artifact) => [$artifact->id => $artifact->getRawOriginal('updated_at')])->all(),
+            'amendments' => $analysis->amendments()->orderBy('id')->get()->mapWithKeys(fn ($amendment) => [
+                $amendment->id => $amendment->getRawOriginal('updated_at'),
+            ])->all(),
+        ]);
     }
 
     public function test_foreign_user_cannot_view_package_or_artifacts(): void
@@ -249,7 +302,7 @@ class DraftPackageGenerationTest extends TestCase
             'legal_basis' => 'Действующие нормы подтверждают компетенцию и порядок.',
             'source_reference' => $source->title,
             'confidence_score' => 90,
-            'warnings' => [],
+            'warnings' => $order === 2 ? ['Проверить согласованность новой статьи с иными нормами.'] : [],
             'target_fragment_ids' => [],
             'anchor_fragment_ids' => $anchors,
             'citations' => [[
@@ -259,6 +312,7 @@ class DraftPackageGenerationTest extends TestCase
             ]],
             'target_snapshot' => ['source_id' => $source->id, 'source_version_id' => $version->id, 'fragment_ids' => $anchors],
             'sort_order' => $order,
+            'chapter' => '6',
         ]);
     }
 
@@ -307,6 +361,7 @@ class DraftPackageGenerationTest extends TestCase
         config()->set('services.openai.key', 'fake-key');
         Http::fake(function (Request $request) {
             $ids = data_get($request->data(), 'text.format.schema.properties.justifications.items.properties.amendment_id.enum');
+
             return Http::response($this->apiResponse(array_map(fn ($id) => [
                 'amendment_id' => $id,
                 'text' => 'В целях устранения правовой неопределённости и определения порядка регулирования.',

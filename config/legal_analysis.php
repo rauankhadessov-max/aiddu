@@ -48,6 +48,14 @@ return [
         'justification_validator_version' => 'draft-package-justification-v1',
         'timeout_seconds' => 180,
         'current_text_absent_label' => 'Отсутствует',
+        'presentation_version' => 'legal-html-v2',
+        'unknown_requirement_label' => 'Необходимо уточнить дополнительные данные для завершения проекта НПА',
+        'requirement_labels' => [
+            'effective_date_rule' => 'Необходимо определить порядок и срок введения НПА в действие',
+            'approving_act' => 'Необходимо указать НПА, которым утверждён изменяемый документ',
+            'adopting_authority' => 'Необходимо указать государственный орган, принимающий НПА',
+            'adopting_act_type' => 'Необходимо определить вид принимаемого НПА',
+        ],
     ],
 
     'stop_words' => [

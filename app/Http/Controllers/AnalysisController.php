@@ -137,28 +137,47 @@ public function run(
     ]);
 
     try {
-        $response = $legalAnalysisService->run($analysis);
+        $runResult = $legalAnalysisService->run($analysis);
 
-        $result = $response['result'];
+        if ($runResult->hasCompletelyInvalidCitations()) {
+            DB::transaction(function () use ($analysis, $runResult) {
+                $attemptSnapshot = $runResult->settings();
+                $settings = $analysis->settings ?? [];
 
-        DB::transaction(function () use ($analysis, $result, $response) {
+                if ($settings === []) {
+                    $settings = $attemptSnapshot;
+                }
+
+                $settings['citation_validation'] = $attemptSnapshot['citation_validation'];
+                $settings['last_failed_attempt'] = $attemptSnapshot;
+
+                $analysis->update([
+                    'status' => 'failed',
+                    'settings' => $settings,
+                    'completed_at' => now(),
+                    'error_message' => 'Ни одно замечание не прошло обязательную проверку нормативных ссылок.',
+                ]);
+            });
+
+            return redirect()
+                ->route('analyses.show', $analysis)
+                ->with('error', 'Не удалось подтвердить нормативные ссылки в результате анализа.');
+        }
+
+        DB::transaction(function () use ($analysis, $runResult) {
 
             $analysis->findings()->delete();
 
             $analysis->update([
                 'status' => 'completed',
-                'ai_model' => $response['model'] ?? config('services.openai.model'),
-                'summary' => $result['summary'] ?? null,
-                'settings' => [
-                    'response_id' => $response['response_id'] ?? null,
-                    'usage' => $response['usage'] ?? [],
-                    'overall_assessment' => $result['overall_assessment'] ?? null,
-                ],
+                'ai_model' => $runResult->model ?? config('services.openai.model'),
+                'summary' => $runResult->summary,
+                'settings' => $runResult->settings(),
                 'completed_at' => now(),
                 'error_message' => null,
             ]);
 
-            foreach (($result['findings'] ?? []) as $index => $finding) {
+            foreach ($runResult->findings as $index => $finding) {
                 $analysis->findings()->create([
                     'finding_type' => $finding['finding_type'],
                     'severity' => $finding['severity'],

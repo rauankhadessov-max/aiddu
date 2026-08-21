@@ -2,83 +2,85 @@
 
 namespace App\Services;
 
+use App\Data\LegalAnalysisResult;
 use App\Models\Analysis;
-use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
 class LegalAnalysisService
 {
-    public function run(Analysis $analysis): array
+    public function __construct(
+        private readonly LegalRetrievalService $retrievalService,
+        private readonly OpenAIService $openAIService,
+        private readonly LegalCitationValidator $citationValidator,
+    ) {
+    }
+
+    public function run(Analysis $analysis): LegalAnalysisResult
     {
-        $analysis->loadMissing([
-            'document',
-            'sourceVersions.source',
-        ]);
+        $analysis->loadMissing(['document', 'sourceVersions.source']);
 
-        $document = $analysis->document;
+        $retrieval = $this->retrievalService->retrieve($analysis);
 
-$queryText = trim(
-    ($analysis->instruction ?? '') . "\n" .
-    ($document->title ?? '') . "\n" .
-    ($document->content_text ?? '') . "\n" .
-    ($document->current_text ?? '') . "\n" .
-    ($document->proposed_text ?? '')
-);
-
-$sourcesText = $analysis->sourceVersions
-    ->map(function ($version) use ($queryText) {
-
-        $sourceText = $version->text ?? '';
-
-        $keywords = collect(
-            preg_split('/[^\p{L}\p{N}\-]+/u', mb_strtolower($queryText))
-        )
-            ->filter(fn ($word) => mb_strlen($word) >= 5)
-            ->unique()
-            ->values();
-
-        $paragraphs = preg_split('/\n{2,}/u', $sourceText);
-
-        $scored = collect($paragraphs)
-            ->map(function ($paragraph, $index) use ($keywords) {
-
-                $lower = mb_strtolower($paragraph);
-
-                $score = $keywords->sum(function ($keyword) use ($lower) {
-                    return mb_substr_count($lower, $keyword);
-                });
-
-                return [
-                    'index' => $index,
-                    'text' => trim($paragraph),
-                    'score' => $score,
-                ];
-            })
-            ->filter(fn ($item) => $item['text'] !== '')
-            ->sortByDesc('score');
-
-        $selectedIndexes = $scored
-            ->take(20)
-            ->pluck('index')
-            ->sort()
-            ->values();
-
-        $selected = collect($paragraphs)
-            ->only($selectedIndexes->all())
-            ->filter()
-            ->implode("\n\n");
-
-        if (mb_strlen($selected) > 30000) {
-            $selected = mb_substr($selected, 0, 30000);
+        if ($retrieval->isEmpty()) {
+            throw new RuntimeException('Не найден релевантный нормативный контекст.');
         }
 
-        return "НПА: {$version->source->title}\n"
-            . "Редакция: {$version->version_name}\n"
-            . "Релевантные фрагменты:\n{$selected}";
-    })
-    ->implode("\n\n-----------------------------\n\n");
+        $prompt = $this->buildPrompt($analysis, $retrieval->promptContext());
+        $schema = $this->buildSchema(array_map(
+            fn ($fragment) => $fragment->fragmentId,
+            $retrieval->fragments,
+        ));
+        $response = $this->openAIService->respondStructured(
+            input: $prompt,
+            schema: $schema,
+            options: [
+                'schema_name' => 'legal_analysis_v2',
+                'timeout' => config('legal_analysis.timeout_seconds', 180),
+            ],
+        );
+        $result = $response['result'];
+        $summary = $result['summary'] ?? null;
+        $overallAssessment = $result['overall_assessment'] ?? null;
+        $findings = $result['findings'] ?? null;
 
-        $input = <<<PROMPT
+        if (!is_string($summary) || trim($summary) === '') {
+            throw new RuntimeException('OpenAI вернул пустое резюме анализа.');
+        }
+
+        if (!is_string($overallAssessment) || trim($overallAssessment) === '') {
+            throw new RuntimeException('OpenAI вернул пустую итоговую оценку.');
+        }
+
+        if (!is_array($findings)) {
+            throw new RuntimeException('OpenAI вернул некорректный список замечаний.');
+        }
+
+        $citationValidation = $this->citationValidator->validate(
+            $findings,
+            $retrieval,
+            $analysis,
+        );
+
+        return new LegalAnalysisResult(
+            summary: trim($summary),
+            overallAssessment: trim($overallAssessment),
+            findings: $citationValidation->acceptedFindings,
+            returnedFindingsCount: count($findings),
+            retrieval: $retrieval,
+            citationValidation: $citationValidation,
+            promptHash: hash('sha256', $prompt),
+            requestPayloadHash: $response['request_payload_hash'],
+            model: $response['model'] ?? null,
+            responseId: $response['response_id'] ?? null,
+            usage: $response['usage'] ?? [],
+        );
+    }
+
+    private function buildPrompt(Analysis $analysis, string $context): string
+    {
+        $document = $analysis->document;
+
+        return <<<PROMPT
 Ты являешься юридическим экспертом по нормативным правовым актам Республики Казахстан.
 
 Твоя задача:
@@ -99,154 +101,111 @@ $sourcesText = $analysis->sourceVersions
 Предлагаемая редакция:
 {$document->proposed_text}
 
-НОРМАТИВНАЯ БАЗА:
-{$sourcesText}
+НОРМАТИВНЫЙ КОНТЕКСТ:
+{$context}
 
-Требования:
-1. Используй только предоставленные нормативные источники.
-2. Не придумывай статьи, пункты и нормы.
-3. Если предоставленных источников недостаточно — прямо укажи это.
-4. Каждое замечание должно содержать юридическое основание.
-5. Если возможно, предложи юридически корректную редакцию.
-6. Отделяй прямое нарушение от рекомендации по улучшению.
-7. Пиши на русском языке.
+ОБЯЗАТЕЛЬНЫЕ ПРАВИЛА:
+1. Используй только нормативные фрагменты, переданные выше.
+2. Каждый Finding должен содержать минимум одну citation.
+3. fragment_id выбирай только из переданных metadata.
+4. quote должен быть точной цитатой из TEXT соответствующего fragment с допустимыми различиями только в пробелах.
+5. Не придумывай статьи, пункты, подпункты и нормативные формулировки.
+6. Если locator не следует из фрагмента надёжно, верни null в article, paragraph или subparagraph.
+7. Если контекста недостаточно, не создавай неподтверждённый Finding и укажи ограничение в summary.
+8. Отделяй прямое нарушение от рекомендации по улучшению.
+9. Пиши на русском языке.
 PROMPT;
+    }
 
-        $response = Http::withToken(config('services.openai.key'))
-            ->acceptJson()
-            ->timeout(180)
-            ->post('https://api.openai.com/v1/responses', [
-                'model' => config('services.openai.model'),
+    private function buildSchema(array $fragmentIds): array
+    {
+        $nullableLocator = [
+            'type' => ['string', 'null'],
+        ];
 
-                'input' => $input,
-
-                'text' => [
-                    'format' => [
-                        'type' => 'json_schema',
-                        'name' => 'legal_analysis',
-                        'strict' => true,
-                        'schema' => [
-                            'type' => 'object',
-                            'additionalProperties' => false,
-                            'properties' => [
-                                'summary' => [
-                                    'type' => 'string',
-                                ],
-                                'overall_assessment' => [
-                                    'type' => 'string',
-                                ],
-                                'findings' => [
-                                    'type' => 'array',
-                                    'items' => [
-                                        'type' => 'object',
-                                        'additionalProperties' => false,
-                                        'properties' => [
-                                            'finding_type' => [
-                                                'type' => 'string',
-                                            ],
-                                            'severity' => [
-                                                'type' => 'string',
-                                                'enum' => [
-                                                    'info',
-                                                    'low',
-                                                    'medium',
-                                                    'high',
-                                                    'critical',
-                                                ],
-                                            ],
-                                            'title' => [
-                                                'type' => 'string',
-                                            ],
-                                            'description' => [
-                                                'type' => 'string',
-                                            ],
-                                            'document_fragment' => [
-                                                'type' => 'string',
-                                            ],
-                                            'document_location' => [
-                                                'type' => 'string',
-                                            ],
-                                            'source_reference' => [
-                                                'type' => 'string',
-                                            ],
-                                            'legal_basis' => [
-                                                'type' => 'string',
-                                            ],
-                                            'recommendation' => [
-                                                'type' => 'string',
-                                            ],
-                                            'recommended_text' => [
-                                                'type' => 'string',
-                                            ],
-                                            'justification' => [
-                                                'type' => 'string',
-                                            ],
-                                            'confidence_score' => [
-                                                'type' => 'integer',
-                                                'minimum' => 0,
-                                                'maximum' => 100,
-                                            ],
+        return [
+            'type' => 'object',
+            'additionalProperties' => false,
+            'properties' => [
+                'summary' => [
+                    'type' => 'string',
+                    'minLength' => 1,
+                ],
+                'overall_assessment' => [
+                    'type' => 'string',
+                    'minLength' => 1,
+                ],
+                'findings' => [
+                    'type' => 'array',
+                    'items' => [
+                        'type' => 'object',
+                        'additionalProperties' => false,
+                        'properties' => [
+                            'finding_type' => ['type' => 'string'],
+                            'severity' => [
+                                'type' => 'string',
+                                'enum' => ['info', 'low', 'medium', 'high', 'critical'],
+                            ],
+                            'title' => ['type' => 'string'],
+                            'description' => ['type' => 'string'],
+                            'document_fragment' => ['type' => 'string'],
+                            'document_location' => ['type' => 'string'],
+                            'legal_basis' => ['type' => 'string'],
+                            'recommendation' => ['type' => 'string'],
+                            'recommended_text' => ['type' => 'string'],
+                            'justification' => ['type' => 'string'],
+                            'confidence_score' => [
+                                'type' => 'integer',
+                                'minimum' => 0,
+                                'maximum' => 100,
+                            ],
+                            'citations' => [
+                                'type' => 'array',
+                                'minItems' => 1,
+                                'items' => [
+                                    'type' => 'object',
+                                    'additionalProperties' => false,
+                                    'properties' => [
+                                        'fragment_id' => [
+                                            'type' => 'string',
+                                            'enum' => array_values($fragmentIds),
                                         ],
-                                        'required' => [
-                                            'finding_type',
-                                            'severity',
-                                            'title',
-                                            'description',
-                                            'document_fragment',
-                                            'document_location',
-                                            'source_reference',
-                                            'legal_basis',
-                                            'recommendation',
-                                            'recommended_text',
-                                            'justification',
-                                            'confidence_score',
+                                        'quote' => [
+                                            'type' => 'string',
+                                            'minLength' => 1,
                                         ],
+                                        'article' => $nullableLocator,
+                                        'paragraph' => $nullableLocator,
+                                        'subparagraph' => $nullableLocator,
+                                    ],
+                                    'required' => [
+                                        'fragment_id',
+                                        'quote',
+                                        'article',
+                                        'paragraph',
+                                        'subparagraph',
                                     ],
                                 ],
                             ],
-                            'required' => [
-                                'summary',
-                                'overall_assessment',
-                                'findings',
-                            ],
+                        ],
+                        'required' => [
+                            'finding_type',
+                            'severity',
+                            'title',
+                            'description',
+                            'document_fragment',
+                            'document_location',
+                            'legal_basis',
+                            'recommendation',
+                            'recommended_text',
+                            'justification',
+                            'confidence_score',
+                            'citations',
                         ],
                     ],
                 ],
-            ]);
-
-        if (!$response->successful()) {
-            $message = $response->json('error.message')
-                ?? 'Неизвестная ошибка OpenAI API.';
-
-            throw new RuntimeException(
-                'OpenAI API error (' . $response->status() . '): ' . $message
-            );
-        }
-
-        $message = collect($response->json('output'))
-            ->firstWhere('type', 'message');
-
-        $text = $message['content'][0]['text'] ?? null;
-
-        if (!$text) {
-            throw new RuntimeException(
-                'OpenAI вернул ответ без структурированного результата.'
-            );
-        }
-
-        $result = json_decode($text, true);
-
-        if (!is_array($result)) {
-            throw new RuntimeException(
-                'Не удалось преобразовать результат OpenAI в JSON.'
-            );
-        }
-
-        return [
-            'result' => $result,
-            'model' => $response->json('model'),
-            'response_id' => $response->json('id'),
-            'usage' => $response->json('usage') ?? [],
+            ],
+            'required' => ['summary', 'overall_assessment', 'findings'],
         ];
     }
 }

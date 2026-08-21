@@ -154,6 +154,40 @@ LAW,
         );
     }
 
+    public function test_retrieval_is_generic_across_code_law_rules_and_appendix_structures(): void
+    {
+        $cases = [
+            [
+                "Раздел III. НАЛОГОВОЕ АДМИНИСТРИРОВАНИЕ\nГлава 8. Отчётность\nСтатья 101. Электронная декларация\n1. Электронная декларация представляется через информационную систему.\n2. Срок определяется настоящей статьёй.",
+                'Электронная декларация представляется через информационную систему.',
+                fn ($fragment) => $fragment->section === 'III' && $fragment->article === '101',
+            ],
+            [
+                "Статья 5. Лицензирование деятельности\n1. Лицензия выдаётся уполномоченным органом.\n2. Заявление рассматривается в установленный срок.",
+                'Лицензия выдаётся уполномоченным органом.',
+                fn ($fragment) => $fragment->article === '5',
+            ],
+            [
+                "Правила оказания услуги\n1. Заявитель подаёт электронное заявление.\n2. Уполномоченный орган проверяет комплектность документов.\n3. Результат направляется заявителю.",
+                'Уполномоченный орган проверяет комплектность документов.',
+                fn ($fragment) => $fragment->paragraph === '2',
+            ],
+            [
+                "Приложение 4 к постановлению\nФорма уведомления\n1. Уведомление содержит идентификатор заявления.\n2. Уведомление подписывается электронной подписью.",
+                'Уведомление содержит идентификатор заявления.',
+                fn ($fragment) => $fragment->appendix === '4',
+            ],
+        ];
+
+        foreach ($cases as [$text, $instruction, $metadataMatches]) {
+            [$analysis] = $this->fixture($text, instruction: $instruction, documentText: $instruction);
+            $result = app(LegalRetrievalService::class)->retrieve($analysis);
+
+            $this->assertNotEmpty($result->fragments);
+            $this->assertNotNull(collect($result->fragments)->first($metadataMatches));
+        }
+    }
+
     private function fixture(
         string $sourceText,
         string $instruction = 'Проверить договор, цену и ответственность сторон.',

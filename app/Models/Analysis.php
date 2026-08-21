@@ -66,6 +66,11 @@ class Analysis extends Model
         return $this->hasMany(AnalysisFinding::class);
     }
 
+    public function amendments(): HasMany
+    {
+        return $this->hasMany(AnalysisAmendment::class);
+    }
+
     public function draftPackage(): HasOne
     {
         return $this->hasOne(DraftPackage::class);

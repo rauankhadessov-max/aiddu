@@ -16,17 +16,25 @@ final readonly class LegalAnalysisResult
         public ?string $model,
         public ?string $responseId,
         public array $usage,
-    ) {
-    }
+        public array $amendments = [],
+        public int $returnedAmendmentsCount = 0,
+        public string $sourceSufficiency = 'sufficient',
+        public array $warnings = [],
+        public ?AmendmentValidationResult $amendmentValidation = null,
+        public ?array $discovery = null,
+    ) {}
 
     public function hasCompletelyInvalidCitations(): bool
     {
-        return $this->returnedFindingsCount > 0 && $this->findings === [];
+        $returned = $this->returnedFindingsCount + $this->returnedAmendmentsCount;
+        $accepted = count($this->findings) + count($this->amendments);
+
+        return $returned > 0 && $accepted === 0;
     }
 
     public function settings(): array
     {
-        return array_merge($this->retrieval->toSnapshot(), [
+        $settings = array_merge($this->retrieval->toSnapshot(), [
             'prompt_version' => config('legal_analysis.prompt_version'),
             'validator_version' => $this->citationValidation->validatorVersion,
             'response_id' => $this->responseId,
@@ -36,6 +44,18 @@ final readonly class LegalAnalysisResult
             'prompt_hash' => $this->promptHash,
             'overall_assessment' => $this->overallAssessment,
             'citation_validation' => $this->citationValidation->toAudit(),
+            'source_sufficiency' => $this->sourceSufficiency,
+            'warnings' => $this->warnings,
         ]);
+
+        if ($this->amendmentValidation !== null) {
+            $settings['amendment_validation'] = $this->amendmentValidation->audit();
+        }
+
+        if ($this->discovery !== null) {
+            $settings['discovery'] = $this->discovery;
+        }
+
+        return $settings;
     }
 }

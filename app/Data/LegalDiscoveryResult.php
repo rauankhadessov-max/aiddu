@@ -1,0 +1,32 @@
+<?php
+
+namespace App\Data;
+
+final readonly class LegalDiscoveryResult
+{
+    public function __construct(
+        public LegalRetrievalResult $retrieval,
+        public string $sourceSufficiency,
+        public array $warnings,
+        public array $candidateFragmentIds,
+        public array $searchQueries,
+        public ?string $responseId,
+        public array $usage,
+        public ?string $model,
+        public ?string $requestPayloadHash,
+    ) {}
+
+    public function snapshot(): array
+    {
+        return [
+            'source_sufficiency' => $this->sourceSufficiency,
+            'warnings' => $this->warnings,
+            'candidate_fragment_ids' => $this->candidateFragmentIds,
+            'search_queries' => $this->searchQueries,
+            'response_id' => $this->responseId,
+            'usage' => $this->usage,
+            'model' => $this->model,
+            'request_payload_hash' => $this->requestPayloadHash,
+        ];
+    }
+}

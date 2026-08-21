@@ -89,7 +89,7 @@
                     </label>
 
                     <p class="mt-1 text-sm text-slate-500">
-                        Вставьте действующую редакцию нормы.
+                        Необязательно. Оставьте пустым, если ИИ должен сам найти изменяемую норму.
                     </p>
 
                     <textarea
@@ -106,7 +106,7 @@
                     </label>
 
                     <p class="mt-1 text-sm text-slate-500">
-                        Вставьте предлагаемую новую редакцию нормы.
+                        Необязательно. Если оставить пустым, будет запущен сценарий разработки поправок по поручению.
                     </p>
 
                     <textarea
@@ -114,7 +114,6 @@
                         rows="14"
                         class="mt-3 w-full rounded-xl border-slate-300 bg-white"
                         placeholder="Предлагаемая редакция..."
-                        required
                     >{{ old('proposed_text') }}</textarea>
                 </div>
 

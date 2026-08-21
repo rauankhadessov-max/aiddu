@@ -10,17 +10,27 @@ use Normalizer;
 
 class LegalRetrievalService
 {
-    public function retrieve(Analysis $analysis): LegalRetrievalResult
-    {
+    public function __construct(private readonly LegalStructureService $structureService) {}
+
+    public function retrieve(
+        Analysis $analysis,
+        ?string $additionalQuery = null,
+        array $requiredFragmentIds = [],
+    ): LegalRetrievalResult {
         $analysis->loadMissing(['document', 'sourceVersions.source']);
 
-        $query = $this->buildQuery($analysis);
+        $query = trim($this->buildQuery($analysis)."\n".($additionalQuery ?? ''));
         $profile = $this->queryProfile($query);
         $scored = [];
+        $required = array_fill_keys($requiredFragmentIds, true);
 
         foreach ($analysis->sourceVersions as $version) {
             foreach ($this->split($version) as $fragment) {
                 $score = $this->scoreFragment($fragment, $profile);
+
+                if (isset($required[$fragment->fragmentId])) {
+                    $score = max($score, (float) config('legal_analysis.discovery.required_fragment_score', 1000));
+                }
 
                 if ($score > 0) {
                     $scored[] = $fragment->withScore($score);
@@ -68,41 +78,17 @@ class LegalRetrievalService
 
     public function split(SourceVersion $version): array
     {
-        $text = $version->text ?? '';
+        return $this->structureService->fragments($version);
+    }
 
-        if (trim($text) === '') {
-            return [];
-        }
+    public function allFragments(Analysis $analysis): array
+    {
+        $analysis->loadMissing('sourceVersions.source');
 
-        $articlePattern = '/^[\h]*(?:Статья|Бап)\h+(\d+(?:-\d+)*)(?:[.\h]|$)/imu';
-        preg_match_all($articlePattern, $text, $matches, PREG_OFFSET_CAPTURE);
-
-        if (($matches[0] ?? []) === []) {
-            return $this->fallbackFragments($version, $text, 0, strlen($text));
-        }
-
-        $fragments = [];
-        $firstArticleByte = $matches[0][0][1];
-
-        if ($firstArticleByte > 0 && trim(substr($text, 0, $firstArticleByte)) !== '') {
-            array_push(
-                $fragments,
-                ...$this->fallbackFragments($version, $text, 0, $firstArticleByte),
-            );
-        }
-
-        foreach ($matches[0] as $index => $match) {
-            $startByte = $match[1];
-            $endByte = $matches[0][$index + 1][1] ?? strlen($text);
-            $article = $matches[1][$index][0];
-
-            array_push(
-                $fragments,
-                ...$this->articleFragments($version, $text, $startByte, $endByte, $article),
-            );
-        }
-
-        return $fragments;
+        return $analysis->sourceVersions
+            ->flatMap(fn (SourceVersion $version) => $this->split($version))
+            ->values()
+            ->all();
     }
 
     private function buildQuery(Analysis $analysis): string
@@ -443,7 +429,7 @@ class LegalRetrievalService
 
         return array_values(array_filter(
             $matches[0] ?? [],
-            fn (string $token) => mb_strlen($token) >= $minimum && !isset($stopWords[$token]),
+            fn (string $token) => mb_strlen($token) >= $minimum && ! isset($stopWords[$token]),
         ));
     }
 
@@ -523,8 +509,7 @@ class LegalRetrievalService
 
     private function selectWithinBudget(array $fragments): array
     {
-        usort($fragments, fn (LegalContextFragment $a, LegalContextFragment $b) =>
-            $b->score <=> $a->score
+        usort($fragments, fn (LegalContextFragment $a, LegalContextFragment $b) => $b->score <=> $a->score
                 ?: $a->sourceVersionId <=> $b->sourceVersionId
                 ?: $a->startOffset <=> $b->startOffset
                 ?: strcmp($a->fragmentId, $b->fragmentId)
@@ -551,8 +536,7 @@ class LegalRetrievalService
             $this->trySelect($fragment, $selected, $selectedIds, $usedChars, $budget, $topK);
         }
 
-        usort($selected, fn (LegalContextFragment $a, LegalContextFragment $b) =>
-            $a->sourceVersionId <=> $b->sourceVersionId
+        usort($selected, fn (LegalContextFragment $a, LegalContextFragment $b) => $a->sourceVersionId <=> $b->sourceVersionId
                 ?: $a->startOffset <=> $b->startOffset
                 ?: strcmp($a->fragmentId, $b->fragmentId)
         );

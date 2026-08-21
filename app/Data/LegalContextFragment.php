@@ -18,8 +18,14 @@ final readonly class LegalContextFragment
         public string $textHash,
         public string $text,
         public float $score = 0.0,
-    ) {
-    }
+        public ?string $section = null,
+        public ?string $chapter = null,
+        public ?string $part = null,
+        public ?string $appendix = null,
+        public ?string $elementType = null,
+        public ?string $elementLabel = null,
+        public ?string $textParagraph = null,
+    ) {}
 
     public function withScore(float $score): self
     {
@@ -37,6 +43,13 @@ final readonly class LegalContextFragment
             textHash: $this->textHash,
             text: $this->text,
             score: $score,
+            section: $this->section,
+            chapter: $this->chapter,
+            part: $this->part,
+            appendix: $this->appendix,
+            elementType: $this->elementType,
+            elementLabel: $this->elementLabel,
+            textParagraph: $this->textParagraph,
         );
     }
 
@@ -51,6 +64,13 @@ final readonly class LegalContextFragment
             'article' => $this->article,
             'paragraph' => $this->paragraph,
             'subparagraph' => $this->subparagraph,
+            'section' => $this->section,
+            'chapter' => $this->chapter,
+            'part' => $this->part,
+            'appendix' => $this->appendix,
+            'element_type' => $this->elementType,
+            'element_label' => $this->elementLabel,
+            'text_paragraph' => $this->textParagraph,
             'start_offset' => $this->startOffset,
             'end_offset' => $this->endOffset,
             'offset_unit' => 'unicode_codepoint',
@@ -71,6 +91,13 @@ final readonly class LegalContextFragment
             'article' => $this->article,
             'paragraph' => $this->paragraph,
             'subparagraph' => $this->subparagraph,
+            'section' => $this->section,
+            'chapter' => $this->chapter,
+            'part' => $this->part,
+            'appendix' => $this->appendix,
+            'element_type' => $this->elementType,
+            'element_label' => $this->elementLabel,
+            'text_paragraph' => $this->textParagraph,
         ];
 
         return json_encode(
@@ -96,6 +123,14 @@ final readonly class LegalContextFragment
 
         if ($this->subparagraph !== null) {
             $parts[] = 'подпункт '.$this->subparagraph;
+        }
+
+        if ($this->textParagraph !== null) {
+            $parts[] = 'абзац '.$this->textParagraph;
+        }
+
+        if ($this->appendix !== null) {
+            $parts[] = 'приложение '.$this->appendix;
         }
 
         return implode(', ', $parts).' ['.$this->fragmentId.']';

@@ -1,9 +1,10 @@
 <?php
 
 return [
-    'prompt_version' => 'legal-analysis-v2',
-    'retrieval_version' => 'lexical-structural-v2',
-    'citation_validator_version' => 'citation-v2',
+    'prompt_version' => 'legal-drafting-v3',
+    'retrieval_version' => 'lexical-structural-v3',
+    'citation_validator_version' => 'citation-v3',
+    'drafting_validator_version' => 'amendment-v1',
     'timeout_seconds' => 180,
 
     'retrieval' => [
@@ -25,6 +26,13 @@ return [
             'subparagraph_reference' => 8.0,
             'length_penalty' => 0.2,
         ],
+    ],
+
+    'discovery' => [
+        'outline_budget_chars' => 50000,
+        'max_candidates' => 16,
+        'max_search_queries' => 12,
+        'required_fragment_score' => 1000,
     ],
 
     'stop_words' => [

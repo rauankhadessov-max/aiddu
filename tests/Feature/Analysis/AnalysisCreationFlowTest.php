@@ -43,7 +43,7 @@ class AnalysisCreationFlowTest extends TestCase
             'document_id' => $document->id,
             'user_id' => $owner->id,
             'title' => 'Юридический анализ: '.$document->title,
-            'analysis_type' => 'comprehensive',
+            'analysis_type' => 'amendment_review',
             'instruction' => $document->analysis_instruction,
             'status' => 'draft',
             'version' => 1,

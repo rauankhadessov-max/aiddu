@@ -25,7 +25,7 @@ class DocumentController extends Controller
             'document_type' => ['required', 'string', 'max:100'],
             'language' => ['required', 'in:ru,kz,bilingual'],
             'current_text' => ['nullable', 'string'],
-            'proposed_text' => ['required', 'string'],
+            'proposed_text' => ['nullable', 'string'],
             'analysis_instruction' => ['required', 'string'],
         ]);
 
@@ -39,7 +39,7 @@ class DocumentController extends Controller
             'status' => 'ready',
             'content_text' => null,
             'current_text' => $validated['current_text'] ?? null,
-            'proposed_text' => $validated['proposed_text'],
+            'proposed_text' => $validated['proposed_text'] ?? null,
             'analysis_instruction' => $validated['analysis_instruction'],
             'uploaded_at' => now(),
         ]);

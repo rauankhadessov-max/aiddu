@@ -76,7 +76,9 @@ class AnalysisController extends Controller
                 'document_id' => $document->id,
                 'user_id' => $request->user()->id,
                 'title' => 'Юридический анализ: '.$document->title,
-                'analysis_type' => 'comprehensive',
+                'analysis_type' => filled($document->proposed_text)
+                    ? 'amendment_review'
+                    : 'amendment_drafting',
                 'instruction' => $document->analysis_instruction,
                 'status' => 'draft',
                 'version' => 1,
@@ -107,6 +109,7 @@ class AnalysisController extends Controller
             'document',
             'sourceVersions.source',
             'findings',
+            'amendments',
             'draftPackage.artifacts',
         ]);
 
@@ -149,13 +152,16 @@ public function run(
                 }
 
                 $settings['citation_validation'] = $attemptSnapshot['citation_validation'];
+                $settings['amendment_validation'] = $attemptSnapshot['amendment_validation'] ?? null;
+                $settings['source_sufficiency'] = $attemptSnapshot['source_sufficiency'] ?? null;
+                $settings['warnings'] = $attemptSnapshot['warnings'] ?? [];
                 $settings['last_failed_attempt'] = $attemptSnapshot;
 
                 $analysis->update([
                     'status' => 'failed',
                     'settings' => $settings,
                     'completed_at' => now(),
-                    'error_message' => 'Ни одно замечание не прошло обязательную проверку нормативных ссылок.',
+                    'error_message' => 'Ни один элемент результата не прошёл обязательную правовую проверку.',
                 ]);
             });
 
@@ -167,6 +173,7 @@ public function run(
         DB::transaction(function () use ($analysis, $runResult) {
 
             $analysis->findings()->delete();
+            $analysis->amendments()->delete();
 
             $analysis->update([
                 'status' => 'completed',
@@ -194,6 +201,14 @@ public function run(
                     'confidence_score' => $finding['confidence_score'],
                     'sort_order' => $index + 1,
                 ]);
+            }
+
+            foreach ($runResult->amendments as $index => $amendment) {
+                unset($amendment['_model_index']);
+
+                $analysis->amendments()->create(array_merge($amendment, [
+                    'sort_order' => $index + 1,
+                ]));
             }
         });
 

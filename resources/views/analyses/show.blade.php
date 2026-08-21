@@ -139,11 +139,71 @@
 
         </div>
 
+        @if (data_get($analysis->settings, 'source_sufficiency') !== 'sufficient')
+            <div class="mt-6 rounded-xl border border-amber-200 bg-amber-50 p-4">
+                <div class="text-sm font-semibold text-amber-900">
+                    Достаточность нормативной базы: {{ data_get($analysis->settings, 'source_sufficiency') }}
+                </div>
+                @foreach (data_get($analysis->settings, 'warnings', []) as $warning)
+                    <p class="mt-2 text-sm text-amber-800">{{ $warning }}</p>
+                @endforeach
+            </div>
+        @endif
+
     @endif
 
 </section>
 
 @if ($analysis->status === 'completed')
+
+    <section class="space-y-4">
+        <div class="flex items-center justify-between">
+            <h2 class="text-xl font-bold text-slate-900">Предлагаемые поправки</h2>
+            <span class="text-sm text-slate-500">{{ $analysis->amendments->count() }}</span>
+        </div>
+
+        @forelse ($analysis->amendments as $amendment)
+            <article class="rounded-2xl border border-blue-200 bg-white p-6">
+                <div class="flex flex-wrap gap-2 text-xs font-semibold uppercase text-slate-600">
+                    <span class="rounded-full bg-blue-50 px-3 py-1">{{ $amendment->amendment_type }}</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1">{{ $amendment->disposition }}</span>
+                    <span class="rounded-full bg-slate-100 px-3 py-1">Уверенность: {{ $amendment->confidence_score }}%</span>
+                </div>
+
+                <div class="mt-4 text-sm font-semibold text-slate-900">
+                    {{ data_get($amendment->target_snapshot, 'source_title') }} — {{ data_get($amendment->target_snapshot, 'version_name') }}
+                </div>
+                <div class="mt-1 text-sm text-slate-500">{{ $amendment->source_reference }}</div>
+
+                @if ($amendment->current_text)
+                    <div class="mt-5">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Действующая редакция</div>
+                        <div class="mt-2 whitespace-pre-wrap rounded-xl bg-slate-50 p-4 text-sm leading-7 text-slate-800">{{ $amendment->current_text }}</div>
+                    </div>
+                @endif
+
+                @if ($amendment->proposed_text)
+                    <div class="mt-5">
+                        <div class="text-xs font-semibold uppercase tracking-wide text-blue-600">Итоговая рекомендуемая редакция</div>
+                        <div class="mt-2 whitespace-pre-wrap rounded-xl bg-blue-50 p-4 text-sm leading-7 text-slate-800">{{ $amendment->proposed_text }}</div>
+                    </div>
+                @endif
+
+                <div class="mt-5">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Обоснование</div>
+                    <div class="mt-2 whitespace-pre-wrap text-sm leading-7 text-slate-700">{{ $amendment->justification }}</div>
+                </div>
+
+                @foreach ($amendment->warnings ?? [] as $warning)
+                    <p class="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">{{ $warning }}</p>
+                @endforeach
+            </article>
+        @empty
+            <div class="rounded-2xl border border-amber-200 bg-amber-50 p-6 text-sm text-amber-800">
+                Подтверждённые поправки не сформированы. Проверьте предупреждения о достаточности нормативной базы.
+            </div>
+        @endforelse
+    </section>
 
     <section class="space-y-4">
 

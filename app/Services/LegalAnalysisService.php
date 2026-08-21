@@ -12,11 +12,15 @@ class LegalAnalysisService
         private readonly LegalRetrievalService $retrievalService,
         private readonly OpenAIService $openAIService,
         private readonly LegalCitationValidator $citationValidator,
-    ) {
-    }
+        private readonly LegalDraftingService $draftingService,
+    ) {}
 
     public function run(Analysis $analysis): LegalAnalysisResult
     {
+        if (in_array($analysis->analysis_type, ['amendment_review', 'amendment_drafting'], true)) {
+            return $this->draftingService->run($analysis);
+        }
+
         $analysis->loadMissing(['document', 'sourceVersions.source']);
 
         $retrieval = $this->retrievalService->retrieve($analysis);
@@ -43,15 +47,15 @@ class LegalAnalysisService
         $overallAssessment = $result['overall_assessment'] ?? null;
         $findings = $result['findings'] ?? null;
 
-        if (!is_string($summary) || trim($summary) === '') {
+        if (! is_string($summary) || trim($summary) === '') {
             throw new RuntimeException('OpenAI вернул пустое резюме анализа.');
         }
 
-        if (!is_string($overallAssessment) || trim($overallAssessment) === '') {
+        if (! is_string($overallAssessment) || trim($overallAssessment) === '') {
             throw new RuntimeException('OpenAI вернул пустую итоговую оценку.');
         }
 
-        if (!is_array($findings)) {
+        if (! is_array($findings)) {
             throw new RuntimeException('OpenAI вернул некорректный список замечаний.');
         }
 

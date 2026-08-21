@@ -10,6 +10,39 @@ use Normalizer;
 
 class LegalCitationValidator
 {
+    public function validateCitations(
+        array $citations,
+        LegalRetrievalResult $context,
+        Analysis $analysis,
+    ): array {
+        $analysis->loadMissing('sourceVersions');
+        $fragmentMap = $context->fragmentMap();
+        $allowedSourceVersionIds = array_fill_keys(
+            $analysis->sourceVersions->pluck('id')->map(fn ($id) => (int) $id)->all(),
+            true,
+        );
+        $validated = [];
+        $reasons = [];
+
+        foreach ($citations as $citationIndex => $citation) {
+            [$validCitation, $citationReasons] = $this->validateCitation(
+                is_array($citation) ? $citation : [],
+                $fragmentMap,
+                $allowedSourceVersionIds,
+            );
+
+            foreach ($citationReasons as $reason) {
+                $reasons[] = array_merge(['citation_index' => $citationIndex], $reason);
+            }
+
+            if ($validCitation !== null) {
+                $validated[] = $validCitation;
+            }
+        }
+
+        return [$validated, $reasons];
+    }
+
     public function validate(
         array $findings,
         LegalRetrievalResult $context,
@@ -30,7 +63,7 @@ class LegalCitationValidator
             $reasons = [];
             $validatedCitations = [];
 
-            if (!is_array($citations) || $citations === []) {
+            if (! is_array($citations) || $citations === []) {
                 $reasons[] = ['code' => 'missing_citation'];
             } else {
                 foreach ($citations as $citationIndex => $citation) {
@@ -87,7 +120,7 @@ class LegalCitationValidator
     ): array {
         $fragmentId = $citation['fragment_id'] ?? null;
 
-        if (!is_string($fragmentId) || !isset($fragmentMap[$fragmentId])) {
+        if (! is_string($fragmentId) || ! isset($fragmentMap[$fragmentId])) {
             return [null, [['code' => 'unknown_fragment', 'fragment_id' => $fragmentId]]];
         }
 
@@ -95,7 +128,7 @@ class LegalCitationValidator
         $fragment = $fragmentMap[$fragmentId];
         $reasons = [];
 
-        if (!isset($allowedSourceVersionIds[$fragment->sourceVersionId])) {
+        if (! isset($allowedSourceVersionIds[$fragment->sourceVersionId])) {
             $reasons[] = [
                 'code' => 'source_version_not_attached',
                 'fragment_id' => $fragmentId,
@@ -105,9 +138,9 @@ class LegalCitationValidator
 
         $quote = $citation['quote'] ?? null;
 
-        if (!is_string($quote) || $this->normalizeText($quote) === '') {
+        if (! is_string($quote) || $this->normalizeText($quote) === '') {
             $reasons[] = ['code' => 'quote_not_found', 'fragment_id' => $fragmentId];
-        } elseif (!str_contains($this->normalizeText($fragment->text), $this->normalizeText($quote))) {
+        } elseif (! str_contains($this->normalizeText($fragment->text), $this->normalizeText($quote))) {
             $reasons[] = ['code' => 'quote_not_found', 'fragment_id' => $fragmentId];
         }
 
@@ -142,6 +175,7 @@ class LegalCitationValidator
             'source_id' => $fragment->sourceId,
             'source_version_id' => $fragment->sourceVersionId,
             'text_hash' => $fragment->textHash,
+            'purpose' => $citation['purpose'] ?? null,
         ], []];
     }
 

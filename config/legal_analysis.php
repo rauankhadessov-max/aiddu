@@ -41,6 +41,15 @@ return [
         'required_fragment_score' => 1000,
     ],
 
+    'draft_package' => [
+        'schema_version' => 'draft-package-v1',
+        'generator_version' => 'legal-draft-pack-v1',
+        'justification_prompt_version' => 'draft-package-justification-v1',
+        'justification_validator_version' => 'draft-package-justification-v1',
+        'timeout_seconds' => 180,
+        'current_text_absent_label' => 'Отсутствует',
+    ],
+
     'stop_words' => [
         'ru' => [
             'будет', 'были', 'было', 'быть', 'весь', 'всех', 'данный', 'должен',

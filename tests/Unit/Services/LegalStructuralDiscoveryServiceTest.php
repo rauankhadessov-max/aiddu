@@ -21,8 +21,8 @@ class LegalStructuralDiscoveryServiceTest extends TestCase
     {
         [$analysis, $version] = $this->fixture(
             $this->productionLikeSource(),
-            "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать решение по заявке;\n7-2) Отсутствует;\n8) запрашивать документы.\n\nСтатья 30-1. Отсутствует",
-            "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать решение по заявке;\n7-2) реструктуризировать задолженность в установленном порядке;\n8) запрашивать документы.\n\nСтатья 30-1. Реструктуризация задолженности\n1. Единый оператор вправе принять решение о реструктуризации задолженности.",
+            "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n...\n7-2) Отсутствует;\n\nСтатья 30-1. Отсутствует",
+            "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n…\n7-2) реструктуризировать задолженность в установленном порядке;\n\nСтатья 30-1. Реструктуризация задолженности\n1. Единый оператор вправе принять решение о реструктуризации задолженности.",
             'Проверить две предлагаемые поправки.',
         );
 
@@ -287,6 +287,84 @@ class LegalStructuralDiscoveryServiceTest extends TestCase
         $this->assertSame([], $plan->mandatoryGroups);
     }
 
+    public function test_cross_scope_fallback_orders_hyphenated_locators_generically(): void
+    {
+        foreach ([[10, 11], [25, 26], [30, 31], [100, 101]] as [$predecessor, $successor]) {
+            $target = $predecessor.'-1';
+            [$analysis] = $this->fixture(
+                "Глава 1. Предыдущая глава\nСтатья {$predecessor}. Предыдущая статья\n1. Предыдущая статья содержит действующую правовую норму.\n\nГлава 2. Следующая глава\nСтатья {$successor}. Следующая статья\n1. Следующая статья содержит действующую правовую норму.",
+                "Статья {$target}. Отсутствует",
+                "Статья {$target}. Новая статья\n1. Устанавливается новая правовая норма.",
+                'Проверить новую статью.',
+            );
+
+            $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+
+            $this->assertSame('sufficient', $plan->sufficiency->status, "Failed for article {$target}.");
+            $this->assertSame((string) $predecessor, data_get($plan->sufficiency->targets, '0.predecessor'));
+            $this->assertSame((string) $successor, data_get($plan->sufficiency->targets, '0.successor'));
+        }
+    }
+
+    public function test_cross_scope_fallback_does_not_cross_from_main_text_into_appendix(): void
+    {
+        [$analysis] = $this->fixture(
+            "Глава 1. Основной текст\nСтатья 10. Основная статья\n1. Основная статья содержит действующую правовую норму.\n\nПриложение 1\nСтатья 11. Статья приложения\n1. Статья приложения содержит отдельную правовую норму.",
+            'Статья 10-1. Отсутствует',
+            "Статья 10-1. Новая статья\n1. Устанавливается новая правовая норма.",
+            'Проверить новую статью.',
+        );
+
+        $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+
+        $this->assertSame('insufficient', $plan->sufficiency->status);
+        $this->assertContains('structural_anchor_not_found', $plan->sufficiency->reasons);
+    }
+
+    public function test_cross_scope_fallback_rejects_ambiguous_duplicate_locators(): void
+    {
+        [$analysis] = $this->fixture(
+            "Глава 1. Первая\nСтатья 10. Первая статья\n1. Первая редакция действующей правовой нормы.\n\nГлава 2. Вторая\nСтатья 11. Вторая статья\n1. Первая редакция следующей правовой нормы.\n\nГлава 3. Третья\nСтатья 10. Повторная статья\n1. Повторная редакция действующей правовой нормы.\n\nГлава 4. Четвертая\nСтатья 11. Повторная следующая статья\n1. Повторная редакция следующей правовой нормы.",
+            'Статья 10-1. Отсутствует',
+            "Статья 10-1. Новая статья\n1. Устанавливается новая правовая норма.",
+            'Проверить новую статью.',
+        );
+
+        $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+
+        $this->assertSame('insufficient', $plan->sufficiency->status);
+        $this->assertContains('ambiguous_structural_scope', $plan->sufficiency->reasons);
+    }
+
+    public function test_cross_scope_fallback_requires_numeric_anchors_to_match_physical_order(): void
+    {
+        [$analysis] = $this->fixture(
+            "Глава 1. Первая по тексту\nСтатья 11. Следующая статья\n1. Следующая статья физически расположена первой.\n\nГлава 2. Вторая по тексту\nСтатья 10. Предыдущая статья\n1. Предыдущая статья физически расположена второй.",
+            'Статья 10-1. Отсутствует',
+            "Статья 10-1. Новая статья\n1. Устанавливается новая правовая норма.",
+            'Проверить новую статью.',
+        );
+
+        $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+
+        $this->assertSame('insufficient', $plan->sufficiency->status);
+        $this->assertContains('structural_anchor_not_found', $plan->sufficiency->reasons);
+    }
+
+    public function test_ellipsis_placeholders_do_not_create_paragraph_target(): void
+    {
+        foreach (['…', '. . .'] as $proposedPlaceholder) {
+            [$analysis] = $this->fixture(
+                $this->productionLikeSource(),
+                "Статья 26. Права\n1. Оператор вправе:\n...\n7) принимать решение.",
+                "Статья 26. Права\n1. Оператор вправе:\n{$proposedPlaceholder}\n7) принимать решение.",
+                'Проверить редакцию.',
+            );
+
+            $this->assertSame([], app(LegalStructuralDiscoveryService::class)->detectIntents($analysis));
+        }
+    }
+
     public function test_new_article_does_not_guess_anchors_across_ambiguous_source_versions(): void
     {
         [$analysis] = $this->fixture(
@@ -347,7 +425,7 @@ class LegalStructuralDiscoveryServiceTest extends TestCase
 
     private function productionLikeSource(): string
     {
-        return "Статья 25. Общие положения\n1. Общая норма.\n\nСтатья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать мотивированное решение по поступившей заявке;\n8) запрашивать документы, необходимые для рассмотрения заявки.\n\nСтатья 27. Обязанности застройщика\n1. Застройщик представляет документы.\n\nСтатья 29. Общие положения\n1. Общая норма применяется к оператору.\n\nСтатья 30. Гарантийный взнос\n1. Гарантийный взнос уплачивается единовременно.\n2. Уплаченный взнос возврату не подлежит.\n\nСтатья 31. Заявка на заключение договора\n1. Застройщик обращается к оператору с заявкой.\n2. Заявка рассматривается в установленном порядке.\n\nСтатья 32. Решение по заявке\n1. Оператор принимает решение.";
+        return "Глава 6. Полномочия и гарантии\nСтатья 25. Общие положения\n1. Общая норма применяется в пределах установленной компетенции.\n\nСтатья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать мотивированное решение по поступившей заявке;\n8) запрашивать документы, необходимые для рассмотрения заявки.\n\nСтатья 27. Обязанности застройщика\n1. Застройщик представляет необходимые документы оператору.\n\nСтатья 29. Общие положения\n1. Общая норма применяется к оператору в установленном порядке.\n\nСтатья 30. Гарантийный взнос\n1. Гарантийный взнос уплачивается единовременно.\n2. Уплаченный взнос возврату не подлежит.\n\nГлава 7. Рассмотрение заявок\nСтатья 31. Заявка на заключение договора\n1. Застройщик обращается к оператору с заявкой.\n2. Заявка рассматривается в установленном порядке.\n\nСтатья 32. Решение по заявке\n1. Оператор принимает мотивированное решение.";
     }
 
     private function fixture(

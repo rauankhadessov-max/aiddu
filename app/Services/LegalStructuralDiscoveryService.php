@@ -422,7 +422,84 @@ class LegalStructuralDiscoveryService
             ];
         }
 
+        if ($candidates !== []) {
+            return $candidates;
+        }
+
+        return $this->crossScopeAnchorCandidates($groups, $locator);
+    }
+
+    private function crossScopeAnchorCandidates(array $groups, string $locator): array
+    {
+        $streams = [];
+
+        foreach ($groups as $group) {
+            if ($group['type'] !== 'article' || ! $this->structureService->isSupportedNumericLocator($group['locator'])) {
+                continue;
+            }
+
+            $streamKey = implode('|', [
+                $group['source_version_id'],
+                $group['appendix'] === null ? 'main' : 'appendix:'.mb_strtolower(trim((string) $group['appendix'])),
+            ]);
+            $streams[$streamKey][] = $group;
+        }
+
+        $candidates = [];
+
+        foreach ($streams as $streamGroups) {
+            $predecessors = array_values(array_filter(
+                $streamGroups,
+                fn (array $group) => $this->structureService->compareNumericLocators($group['locator'], $locator) < 0,
+            ));
+            $successors = array_values(array_filter(
+                $streamGroups,
+                fn (array $group) => $this->structureService->compareNumericLocators($group['locator'], $locator) > 0,
+            ));
+
+            if ($predecessors === [] || $successors === []) {
+                continue;
+            }
+
+            usort($predecessors, fn (array $a, array $b) => $this->structureService->compareNumericLocators($b['locator'], $a['locator']));
+            usort($successors, fn (array $a, array $b) => $this->structureService->compareNumericLocators($a['locator'], $b['locator']));
+            $nearestPredecessor = $predecessors[0]['locator'];
+            $nearestSuccessor = $successors[0]['locator'];
+            $predecessors = array_values(array_filter(
+                $predecessors,
+                fn (array $group) => $this->structureService->compareNumericLocators($group['locator'], $nearestPredecessor) === 0,
+            ));
+            $successors = array_values(array_filter(
+                $successors,
+                fn (array $group) => $this->structureService->compareNumericLocators($group['locator'], $nearestSuccessor) === 0,
+            ));
+
+            foreach ($predecessors as $predecessor) {
+                foreach ($successors as $successor) {
+                    if ($this->groupEndOffset($predecessor) >= $this->groupStartOffset($successor)) {
+                        continue;
+                    }
+
+                    $candidates[] = [
+                        'source_version_id' => $predecessor['source_version_id'],
+                        'predecessor' => $predecessor,
+                        'successor' => $successor,
+                    ];
+                }
+            }
+        }
+
         return $candidates;
+    }
+
+    private function groupStartOffset(array $group): int
+    {
+        return min(array_map(fn ($fragment) => $fragment->startOffset, $group['fragments']));
+    }
+
+    private function groupEndOffset(array $group): int
+    {
+        return max(array_map(fn ($fragment) => $fragment->endOffset, $group['fragments']));
     }
 
     private function articleBlocks(string $text): array
@@ -596,6 +673,12 @@ class LegalStructuralDiscoveryService
 
     private function comparableText(string $text): string
     {
-        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $text) ?? $text));
+        $withoutPlaceholders = preg_replace(
+            '/^[\h]*(?:(?:\.[\h]*){3,}|…)[\h]*(?:\R|$)/mu',
+            '',
+            $text,
+        ) ?? $text;
+
+        return mb_strtolower(trim(preg_replace('/\s+/u', ' ', $withoutPlaceholders) ?? $withoutPlaceholders));
     }
 }

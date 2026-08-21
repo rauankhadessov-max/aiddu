@@ -32,12 +32,14 @@
                     </p>
                 </div>
 
-                <a
-                    href="{{ route('sources.create') }}"
-                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
-                >
-                    + Добавить НПА
-                </a>
+                @can('create', App\Models\Source::class)
+                    <a
+                        href="{{ route('sources.create') }}"
+                        class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+                    >
+                        + Добавить НПА
+                    </a>
+                @endcan
 
             </div>
 

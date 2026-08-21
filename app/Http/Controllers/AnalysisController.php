@@ -8,13 +8,14 @@ use App\Models\SourceVersion;
 use Illuminate\Http\Request;
 use App\Services\LegalAnalysisService;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Gate;
 use Throwable;
 
 class AnalysisController extends Controller
 {
     public function create(Request $request, Document $document)
     {
-        abort_unless($document->user_id === $request->user()->id, 403);
+        Gate::authorize('createAnalysis', $document);
 
         $document->load('workspace');
 
@@ -27,7 +28,7 @@ class AnalysisController extends Controller
 
     public function store(Request $request, Document $document)
     {
-        abort_unless($document->user_id === $request->user()->id, 403);
+        Gate::authorize('createAnalysis', $document);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -67,7 +68,7 @@ class AnalysisController extends Controller
 
     public function show(Request $request, Analysis $analysis)
     {
-        abort_unless($analysis->user_id === $request->user()->id, 403);
+        Gate::authorize('view', $analysis);
 
         $analysis->load([
             'workspace',
@@ -86,7 +87,7 @@ public function run(
     LegalAnalysisService $legalAnalysisService
 )
 {
-    abort_unless($analysis->user_id === $request->user()->id, 403);
+    Gate::authorize('run', $analysis);
 
     if (!$analysis->document_id) {
         return back()->with('error', 'Для анализа не выбран документ.');

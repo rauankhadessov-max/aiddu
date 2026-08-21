@@ -5,19 +5,20 @@ namespace App\Http\Controllers;
 use App\Models\Document;
 use App\Models\Workspace;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 
 class DocumentController extends Controller
 {
     public function create(Request $request, Workspace $workspace)
     {
-        abort_unless($workspace->user_id === $request->user()->id, 403);
+        Gate::authorize('update', $workspace);
 
         return view('documents.create', compact('workspace'));
     }
 
     public function store(Request $request, Workspace $workspace)
     {
-        abort_unless($workspace->user_id === $request->user()->id, 403);
+        Gate::authorize('update', $workspace);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
@@ -50,7 +51,7 @@ class DocumentController extends Controller
 
     public function show(Request $request, Document $document)
     {
-        abort_unless($document->user_id === $request->user()->id, 403);
+        Gate::authorize('view', $document);
 
         $document->load([
             'workspace',

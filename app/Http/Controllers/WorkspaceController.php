@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Workspace;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
 
 class WorkspaceController extends Controller
@@ -47,7 +48,7 @@ class WorkspaceController extends Controller
 
     public function show(Request $request, Workspace $workspace)
     {
-        abort_unless($workspace->user_id === $request->user()->id, 403);
+        Gate::authorize('view', $workspace);
 
         $workspace->load([
             'documents',
@@ -60,6 +61,8 @@ class WorkspaceController extends Controller
 
 public function sources(Workspace $workspace)
 {
+    Gate::authorize('view', $workspace);
+
     $sources = \App\Models\Source::with('versions')
         ->latest()
         ->get();
@@ -71,6 +74,8 @@ public function sources(Workspace $workspace)
 
 public function attachSource(Workspace $workspace, \App\Models\Source $source)
 {
+    Gate::authorize('update', $workspace);
+
     $workspace->sources()->syncWithoutDetaching([$source->id]);
 
     return redirect()

@@ -2,6 +2,15 @@
 
 namespace App\Providers;
 
+use App\Models\Analysis;
+use App\Models\Document;
+use App\Models\Source;
+use App\Models\Workspace;
+use App\Policies\AnalysisPolicy;
+use App\Policies\DocumentPolicy;
+use App\Policies\SourcePolicy;
+use App\Policies\WorkspacePolicy;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\ServiceProvider;
 
 class AppServiceProvider extends ServiceProvider
@@ -19,6 +28,9 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        //
+        Gate::policy(Workspace::class, WorkspacePolicy::class);
+        Gate::policy(Document::class, DocumentPolicy::class);
+        Gate::policy(Analysis::class, AnalysisPolicy::class);
+        Gate::policy(Source::class, SourcePolicy::class);
     }
 }

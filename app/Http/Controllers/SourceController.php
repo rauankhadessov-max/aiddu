@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Source;
 use Illuminate\Http\Request;
 use App\Services\DocxTextExtractor;
+use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Storage;
 
 
@@ -21,11 +22,15 @@ class SourceController extends Controller
 
     public function create()
     {
+        Gate::authorize('create', Source::class);
+
         return view('sources.create');
     }
 
     public function store(Request $request)
     {
+        Gate::authorize('create', Source::class);
+
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
             'type' => ['required', 'string', 'max:100'],
@@ -55,6 +60,8 @@ class SourceController extends Controller
 
     public function createVersion(Source $source)
     {
+        Gate::authorize('update', $source);
+
         return view('sources.versions.create', compact('source'));
     }
 
@@ -64,6 +71,8 @@ class SourceController extends Controller
     DocxTextExtractor $docxTextExtractor
 )
 {
+    Gate::authorize('update', $source);
+
     $validated = $request->validate([
         'version_name' => ['required', 'string', 'max:255'],
         'effective_date' => ['nullable', 'date'],
@@ -107,6 +116,8 @@ class SourceController extends Controller
 
 public function editVersion(Source $source, $version)
 {
+    Gate::authorize('update', $source);
+
     $version = $source->versions()->findOrFail($version);
 
     return view('sources.versions.edit', compact('source', 'version'));
@@ -119,6 +130,8 @@ public function updateVersion(
     DocxTextExtractor $docxTextExtractor
 )
 {
+    Gate::authorize('update', $source);
+
     $version = $source->versions()->findOrFail($version);
 
     $validated = $request->validate([

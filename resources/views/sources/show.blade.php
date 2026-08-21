@@ -76,12 +76,14 @@
                     </p>
                 </div>
 
-                <a
-                    href="{{ route('source-versions.create', $source) }}"
-                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
-                >
-                    + Добавить редакцию
-                </a>
+                @can('update', $source)
+                    <a
+                        href="{{ route('source-versions.create', $source) }}"
+                        class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+                    >
+                        + Добавить редакцию
+                    </a>
+                @endcan
 
             </div>
 
@@ -110,12 +112,14 @@
                              ID {{ $version->id }}
                             </span>
 
-    <a
-        href="{{ route('source-versions.edit', [$source, $version]) }}"
-        class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-blue-300"
-    >
-        Редактировать
-    </a>
+    @can('update', $source)
+        <a
+            href="{{ route('source-versions.edit', [$source, $version]) }}"
+            class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-blue-300"
+        >
+            Редактировать
+        </a>
+    @endcan
 
 </div>
 

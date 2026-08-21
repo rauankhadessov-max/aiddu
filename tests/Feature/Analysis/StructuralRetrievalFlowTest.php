@@ -19,7 +19,7 @@ class StructuralRetrievalFlowTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_analysis_three_regression_sends_complete_articles_30_and_31_before_optional_context(): void
+    public function test_analysis_four_multiple_target_regression_sends_complete_parent_and_anchor_articles_in_one_request(): void
     {
         [$analysis, $version] = $this->fixture();
         config()->set('services.openai.key', 'fake-structural-key');
@@ -53,7 +53,7 @@ class StructuralRetrievalFlowTest extends TestCase
         $settings = $result->settings();
         $allFragments = app(LegalRetrievalService::class)->split($version);
 
-        foreach (['30', '31'] as $article) {
+        foreach (['26', '30', '31'] as $article) {
             $expected = collect($allFragments)->where('article', $article)->pluck('fragmentId')->sort()->values()->all();
             $selected = collect($result->retrieval->fragments)->where('article', $article)->pluck('fragmentId')->sort()->values()->all();
 
@@ -67,8 +67,16 @@ class StructuralRetrievalFlowTest extends TestCase
 
         $this->assertSame('sufficient', data_get($settings, 'context_sufficiency.status'));
         $this->assertTrue(data_get($settings, 'context_sufficiency.mandatory_context_complete'));
-        $this->assertSame('30', data_get($settings, 'context_sufficiency.targets.0.predecessor'));
-        $this->assertSame('31', data_get($settings, 'context_sufficiency.targets.0.successor'));
+        $targets = collect(data_get($settings, 'context_sufficiency.targets'))->keyBy(
+            fn (array $target) => $target['element_type'].'|'.$target['locator'],
+        );
+        $this->assertCount(2, $targets);
+        $this->assertSame('new', $targets['subparagraph|7-2']['target_mode']);
+        $this->assertSame('26', $targets['subparagraph|7-2']['parent_article']);
+        $this->assertSame('1', $targets['subparagraph|7-2']['parent_paragraph']);
+        $this->assertSame('new', $targets['article|30-1']['target_mode']);
+        $this->assertSame('30', $targets['article|30-1']['predecessor']);
+        $this->assertSame('31', $targets['article|30-1']['successor']);
         $this->assertGreaterThan(0, data_get($settings, 'budget_audit.mandatory_used'));
         $this->assertLessThanOrEqual(12000, data_get($settings, 'budget_audit.optional_used'));
         $this->assertSame(30000, data_get($settings, 'budget_audit.total_limit'));
@@ -91,14 +99,14 @@ class StructuralRetrievalFlowTest extends TestCase
         $document = Document::create([
             'workspace_id' => $workspace->id,
             'user_id' => $user->id,
-            'title' => 'Новая статья о реструктуризации',
+            'title' => 'Реструктуризация задолженности v2',
             'document_type' => 'legal_norm',
             'input_type' => 'text',
             'language' => 'ru',
             'status' => 'ready',
-            'current_text' => "Отсутствует\n\nСтатья 30-1.\nОтсутствует",
-            'proposed_text' => "Статья 30-1. Реструктуризация обязательств\n1. Оператор вправе изменить условия исполнения обязательства.",
-            'analysis_instruction' => 'Проверить предлагаемую новую статью и подготовить обоснование.',
+            'current_text' => "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать решение по заявке;\n7-2) Отсутствует;\n8) запрашивать документы.\n\nСтатья 30-1. Отсутствует",
+            'proposed_text' => "Статья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать решение по заявке;\n7-2) реструктуризировать задолженность в установленном порядке;\n8) запрашивать документы.\n\nСтатья 30-1. Реструктуризация задолженности\n1. Единый оператор вправе принять решение о реструктуризации задолженности.",
+            'analysis_instruction' => 'Проверить новый подпункт и новую статью, подготовить обоснование.',
         ]);
         $analysis = Analysis::create([
             'workspace_id' => $workspace->id,
@@ -115,7 +123,7 @@ class StructuralRetrievalFlowTest extends TestCase
             'type' => 'law',
             'status' => 'active',
         ]);
-        $text = "Статья 29. Общие положения\n1. Оператор действует в пределах компетенции.\n\nСтатья 30. Гарантийный взнос\n1. Гарантийный взнос уплачивается единовременно.\n2. Взнос возврату не подлежит.\n3. Размер взноса определяется по утверждённой методике.\n\nСтатья 31. Заявка на заключение договора\n1. Заявитель обращается к оператору с заявкой.\n2. Заявка рассматривается в установленном порядке.\n\nСтатья 32. Решение\n1. Оператор принимает мотивированное решение.";
+        $text = "Статья 25. Общие положения\n1. Оператор действует в пределах компетенции.\n\nСтатья 26. Права и обязанности Единого оператора\n1. Единый оператор вправе:\n7) принимать решение по заявке;\n8) запрашивать документы.\n\nСтатья 27. Обязанности застройщика\n1. Застройщик представляет документы.\n\nСтатья 29. Общие положения\n1. Оператор действует в пределах компетенции.\n\nСтатья 30. Гарантийный взнос\n1. Гарантийный взнос уплачивается единовременно.\n2. Взнос возврату не подлежит.\n3. Размер взноса определяется по утверждённой методике.\n\nСтатья 31. Заявка на заключение договора\n1. Заявитель обращается к оператору с заявкой.\n2. Заявка рассматривается в установленном порядке.\n\nСтатья 32. Решение\n1. Оператор принимает мотивированное решение.";
         $version = SourceVersion::create([
             'source_id' => $source->id,
             'version_name' => 'Редакция 2026',

@@ -5,6 +5,14 @@
 >
     <div class="max-w-5xl">
 
+        @if ($errors->any())
+            <div class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                @foreach ($errors->all() as $error)
+                    <div>{{ $error }}</div>
+                @endforeach
+            </div>
+        @endif
+
         <form
             method="POST"
             action="{{ route('analyses.store', $document) }}"
@@ -12,58 +20,37 @@
         >
             @csrf
 
-            <div class="rounded-2xl border border-slate-200 bg-white p-6 space-y-6">
-
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700">
-                        Название анализа
-                    </label>
-
-                    <input
-                        type="text"
-                        name="title"
-                        value="{{ old('title', 'Юридический анализ: ' . $document->title) }}"
-                        class="mt-2 w-full rounded-xl border-slate-300"
-                        required
-                    >
-                </div>
-
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700">
-                        Тип анализа
-                    </label>
-
-                    <select
-                        name="analysis_type"
-                        class="mt-2 w-full rounded-xl border-slate-300"
-                        required
-                    >
-                        <option value="comprehensive">Комплексный анализ</option>
-                        <option value="legal_compliance">Соответствие законодательству</option>
-                        <option value="legal_collisions">Правовые коллизии</option>
-                        <option value="legal_risks">Правовые риски</option>
-                        <option value="revision_drafting">Подготовка новой редакции</option>
-                        <option value="comparative_table">Сравнительная таблица</option>
-                        <option value="bilingual_comparison">RU / KZ</option>
-                        <option value="custom">Свободное поручение</option>
-                    </select>
-                </div>
-
-                <div>
-                    <label class="block text-sm font-semibold text-slate-700">
-                        Поручение ИИ
-                    </label>
-
-                    <textarea
-                        name="instruction"
-                        rows="8"
-                        class="mt-2 w-full rounded-xl border-slate-300"
-                        placeholder="Например: Проверь предлагаемую редакцию на соответствие законодательству, выяви риски, предложи улучшенную редакцию и подготовь обоснование."
-                        required
-                    >{{ old('instruction') }}</textarea>
-                </div>
-
+            <div class="rounded-2xl border border-slate-200 bg-white p-6">
+                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Документ</div>
+                <div class="mt-2 text-lg font-bold text-slate-900">{{ $document->title }}</div>
             </div>
+
+            <div class="grid gap-6 md:grid-cols-2">
+                <section class="rounded-2xl border border-slate-200 bg-white p-6">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
+                        Действующая редакция
+                    </div>
+                    <div class="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-800">
+                        {{ $document->current_text ?: 'Не указана' }}
+                    </div>
+                </section>
+
+                <section class="rounded-2xl border border-blue-200 bg-blue-50 p-6">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-blue-600">
+                        Предлагаемая редакция
+                    </div>
+                    <div class="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-800">
+                        {{ $document->proposed_text ?: 'Не указана' }}
+                    </div>
+                </section>
+            </div>
+
+            <section class="rounded-2xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-bold">Поручение ИИ</h2>
+                <div class="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {{ $document->analysis_instruction }}
+                </div>
+            </section>
 
             <div class="rounded-2xl border border-slate-200 bg-white p-6">
 
@@ -86,6 +73,7 @@
                                 type="checkbox"
                                 name="source_versions[]"
                                 value="{{ $version->id }}"
+                                @checked(in_array($version->id, old('source_versions', [])))
                                 class="mt-1 rounded border-slate-300"
                             >
 
@@ -106,7 +94,10 @@
                         </label>
                     @empty
                         <div class="rounded-xl border border-dashed border-slate-300 p-5 text-sm text-slate-500">
-                            В нормативной базе пока нет редакций НПА.
+                            Для этого рабочего дела пока нет подключённых редакций НПА.
+                            <a href="{{ route('workspaces.sources', $document->workspace) }}" class="font-semibold text-blue-600">
+                                Подключить источники
+                            </a>
                         </div>
                     @endforelse
 
@@ -117,7 +108,8 @@
             <div class="flex gap-3">
                 <button
                     type="submit"
-                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+                    @disabled($sourceVersions->isEmpty())
+                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500 disabled:cursor-not-allowed disabled:bg-slate-300"
                 >
                     Создать анализ
                 </button>

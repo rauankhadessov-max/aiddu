@@ -5,6 +5,17 @@
 >
     <div class="max-w-6xl">
 
+        @if ($errors->any())
+            <div class="mb-6 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                <div class="font-semibold">Проверьте заполнение формы:</div>
+                <ul class="mt-2 list-disc space-y-1 pl-5">
+                    @foreach ($errors->all() as $error)
+                        <li>{{ $error }}</li>
+                    @endforeach
+                </ul>
+            </div>
+        @endif
+
         <form
             method="POST"
             action="{{ route('documents.store', $workspace) }}"
@@ -41,13 +52,13 @@
                             class="mt-2 w-full rounded-xl border-slate-300"
                             required
                         >
-                            <option value="legal_norm">Отдельная норма</option>
-                            <option value="draft_law">Проект закона</option>
-                            <option value="draft_order">Проект приказа</option>
-                            <option value="draft_resolution">Проект постановления</option>
-                            <option value="comparative_table">Сравнительная таблица</option>
-                            <option value="legal_opinion">Юридическое заключение</option>
-                            <option value="other">Другое</option>
+                            <option value="legal_norm" @selected(old('document_type') === 'legal_norm')>Отдельная норма</option>
+                            <option value="draft_law" @selected(old('document_type') === 'draft_law')>Проект закона</option>
+                            <option value="draft_order" @selected(old('document_type') === 'draft_order')>Проект приказа</option>
+                            <option value="draft_resolution" @selected(old('document_type') === 'draft_resolution')>Проект постановления</option>
+                            <option value="comparative_table" @selected(old('document_type') === 'comparative_table')>Сравнительная таблица</option>
+                            <option value="legal_opinion" @selected(old('document_type') === 'legal_opinion')>Юридическое заключение</option>
+                            <option value="other" @selected(old('document_type') === 'other')>Другое</option>
                         </select>
                     </div>
 
@@ -61,9 +72,9 @@
                             class="mt-2 w-full rounded-xl border-slate-300"
                             required
                         >
-                            <option value="ru">Русский</option>
-                            <option value="kz">Казахский</option>
-                            <option value="bilingual">RU / KZ</option>
+                            <option value="ru" @selected(old('language', 'ru') === 'ru')>Русский</option>
+                            <option value="kz" @selected(old('language') === 'kz')>Казахский</option>
+                            <option value="bilingual" @selected(old('language') === 'bilingual')>RU / KZ</option>
                         </select>
                     </div>
 

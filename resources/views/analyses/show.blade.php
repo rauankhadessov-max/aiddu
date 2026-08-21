@@ -17,32 +17,6 @@
     </div>
 @endif
 
-        <div class="rounded-2xl border border-slate-200 bg-white p-6">
-
-            <div class="grid gap-5 md:grid-cols-4">
-                <div>
-                    <div class="text-xs text-slate-500">Тип анализа</div>
-                    <div class="mt-1 font-semibold">{{ $analysis->analysis_type }}</div>
-                </div>
-
-                <div>
-                    <div class="text-xs text-slate-500">Статус</div>
-                    <div class="mt-1 font-semibold">{{ $analysis->status }}</div>
-                </div>
-
-                <div>
-                    <div class="text-xs text-slate-500">Версия</div>
-                    <div class="mt-1 font-semibold">{{ $analysis->version }}</div>
-                </div>
-
-                <div>
-                    <div class="text-xs text-slate-500">Источников</div>
-                    <div class="mt-1 font-semibold">{{ $analysis->sourceVersions->count() }}</div>
-                </div>
-            </div>
-
-        </div>
-
 @if ($analysis->document)
 
     <div class="grid gap-6 md:grid-cols-2">

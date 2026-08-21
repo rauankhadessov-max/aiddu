@@ -9,6 +9,7 @@ use Illuminate\Http\Request;
 use App\Services\LegalAnalysisService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Validation\ValidationException;
 use Throwable;
 
 class AnalysisController extends Controller
@@ -17,10 +18,18 @@ class AnalysisController extends Controller
     {
         Gate::authorize('createAnalysis', $document);
 
+        if (blank($document->analysis_instruction)) {
+            return redirect()
+                ->route('documents.show', $document)
+                ->with('error', 'Сначала укажите поручение ИИ для этого документа.');
+        }
+
         $document->load('workspace');
 
-        $sourceVersions = SourceVersion::with('source')
-            ->latest('effective_date')
+        $sourceVersions = $this->sourceVersionsAvailableFor($document)
+            ->with('source')
+            ->orderByDesc('source_versions.effective_date')
+            ->orderBy('source_versions.id')
             ->get();
 
         return view('analyses.create', compact('document', 'sourceVersions'));
@@ -30,36 +39,59 @@ class AnalysisController extends Controller
     {
         Gate::authorize('createAnalysis', $document);
 
+        if (blank($document->analysis_instruction)) {
+            return redirect()
+                ->route('documents.show', $document)
+                ->with('error', 'Сначала укажите поручение ИИ для этого документа.');
+        }
+
         $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'analysis_type' => ['required', 'string', 'max:100'],
-            'instruction' => ['required', 'string'],
-            'source_versions' => ['nullable', 'array'],
-            'source_versions.*' => ['integer', 'exists:source_versions,id'],
+            'source_versions' => ['required', 'array', 'min:1'],
+            'source_versions.*' => ['required', 'integer', 'distinct', 'exists:source_versions,id'],
+        ], [
+            'source_versions.required' => 'Выберите хотя бы одну редакцию нормативного источника.',
+            'source_versions.min' => 'Выберите хотя бы одну редакцию нормативного источника.',
+            'source_versions.*.exists' => 'Выбрана недоступная редакция нормативного источника.',
         ]);
 
-        $analysis = Analysis::create([
-            'workspace_id' => $document->workspace_id,
-            'document_id' => $document->id,
-            'user_id' => $request->user()->id,
-            'title' => $validated['title'],
-            'analysis_type' => $validated['analysis_type'],
-            'instruction' => $validated['instruction'],
-            'status' => 'draft',
-            'version' => 1,
-        ]);
+        $selectedSourceVersionIds = collect($validated['source_versions'])
+            ->map(fn ($id) => (int) $id)
+            ->values();
 
-        if (!empty($validated['source_versions'])) {
-            $syncData = [];
+        $allowedSourceVersionIds = $this->sourceVersionsAvailableFor($document)
+            ->whereIn('source_versions.id', $selectedSourceVersionIds)
+            ->pluck('source_versions.id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
 
-            foreach ($validated['source_versions'] as $sourceVersionId) {
-                $syncData[$sourceVersionId] = [
-                    'role' => 'reference',
-                ];
-            }
+        if ($allowedSourceVersionIds->count() !== $selectedSourceVersionIds->count()) {
+            throw ValidationException::withMessages([
+                'source_versions' => 'Можно использовать только редакции источников, подключённых к текущему рабочему делу.',
+            ]);
+        }
+
+        $analysis = DB::transaction(function () use ($document, $request, $selectedSourceVersionIds) {
+            $analysis = Analysis::create([
+                'workspace_id' => $document->workspace_id,
+                'document_id' => $document->id,
+                'user_id' => $request->user()->id,
+                'title' => 'Юридический анализ: '.$document->title,
+                'analysis_type' => 'comprehensive',
+                'instruction' => $document->analysis_instruction,
+                'status' => 'draft',
+                'version' => 1,
+            ]);
+
+            $syncData = $selectedSourceVersionIds
+                ->mapWithKeys(fn ($sourceVersionId) => [
+                    $sourceVersionId => ['role' => 'reference'],
+                ])
+                ->all();
 
             $analysis->sourceVersions()->sync($syncData);
-        }
+
+            return $analysis;
+        });
 
         return redirect()
             ->route('analyses.show', $analysis)
@@ -175,6 +207,15 @@ public function index(Request $request)
         ->get();
 
     return view('analyses.index', compact('analyses'));
+}
+
+private function sourceVersionsAvailableFor(Document $document)
+{
+    return SourceVersion::query()
+        ->select('source_versions.*')
+        ->join('sources', 'sources.id', '=', 'source_versions.source_id')
+        ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
+        ->where('workspace_sources.workspace_id', $document->workspace_id);
 }
 
 

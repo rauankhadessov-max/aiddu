@@ -83,6 +83,9 @@ Route::put('/sources/{source}/versions/{version}', [SourceController::class, 'up
     Route::get('/documents/{document}', [DocumentController::class, 'show'])
     ->name('documents.show');
 
+    Route::patch('/documents/{document}/analysis-instruction', [DocumentController::class, 'updateAnalysisInstruction'])
+    ->name('documents.analysis-instruction.update');
+
     Route::get('/profile', [ProfileController::class, 'edit'])
         ->name('profile.edit');
 

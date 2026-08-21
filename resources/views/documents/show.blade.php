@@ -11,6 +11,20 @@
             </div>
         @endif
 
+        @if (session('error'))
+            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                {{ session('error') }}
+            </div>
+        @endif
+
+        @if ($errors->any())
+            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                @foreach ($errors->all() as $error)
+                    <div>{{ $error }}</div>
+                @endforeach
+            </div>
+        @endif
+
         <div class="rounded-2xl border border-slate-200 bg-white p-6">
 
             <div class="grid gap-5 md:grid-cols-4">
@@ -67,6 +81,52 @@
             </section>
         @endif
 
+        @if (blank($document->analysis_instruction))
+            <section class="rounded-2xl border border-amber-200 bg-amber-50 p-6">
+                <h2 class="text-lg font-bold text-slate-900">Поручение ИИ необходимо указать</h2>
+
+                <p class="mt-2 text-sm text-slate-600">
+                    Этот документ был создан ранее. Сохраните поручение ИИ, прежде чем создавать новый анализ.
+                </p>
+
+                <form
+                    method="POST"
+                    action="{{ route('documents.analysis-instruction.update', $document) }}"
+                    class="mt-5"
+                >
+                    @csrf
+                    @method('PATCH')
+
+                    <label for="analysis_instruction" class="block text-sm font-semibold text-slate-700">
+                        Поручение ИИ
+                    </label>
+
+                    <textarea
+                        id="analysis_instruction"
+                        name="analysis_instruction"
+                        rows="6"
+                        class="mt-2 w-full rounded-xl border-slate-300 bg-white"
+                        required
+                    >{{ old('analysis_instruction') }}</textarea>
+
+                    <button
+                        type="submit"
+                        class="mt-4 rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+                    >
+                        Сохранить поручение ИИ
+                    </button>
+                </form>
+            </section>
+        @else
+            <section class="rounded-2xl border border-slate-200 bg-white p-6">
+                <h2 class="text-lg font-bold">Поручение ИИ</h2>
+
+                <div class="mt-4 whitespace-pre-wrap text-sm leading-7 text-slate-700">
+                    {{ $document->analysis_instruction }}
+                </div>
+            </section>
+        @endif
+
         <div class="flex gap-3">
             <a
                 href="{{ route('workspaces.show', $document->workspace) }}"
@@ -75,12 +135,14 @@
                 ← Рабочее дело
             </a>
 
-            <a
-                href="{{ route('analyses.create', $document) }}"
-                class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white"
-            >
-                Новый анализ
-            </a>
+            @unless (blank($document->analysis_instruction))
+                <a
+                    href="{{ route('analyses.create', $document) }}"
+                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white"
+                >
+                    Новый анализ
+                </a>
+            @endunless
         </div>
 
     </div>

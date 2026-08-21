@@ -61,4 +61,23 @@ class DocumentController extends Controller
 
         return view('documents.show', compact('document'));
     }
+
+    public function updateAnalysisInstruction(Request $request, Document $document)
+    {
+        Gate::authorize('updateAnalysisInstruction', $document);
+
+        $validated = $request->validate([
+            'analysis_instruction' => ['required', 'string'],
+        ], [
+            'analysis_instruction.required' => 'Укажите поручение ИИ перед созданием анализа.',
+        ]);
+
+        $document->update([
+            'analysis_instruction' => $validated['analysis_instruction'],
+        ]);
+
+        return redirect()
+            ->route('documents.show', $document)
+            ->with('success', 'Поручение ИИ сохранено.');
+    }
 }

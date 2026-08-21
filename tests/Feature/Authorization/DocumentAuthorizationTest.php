@@ -52,7 +52,17 @@ class DocumentAuthorizationTest extends TestCase
             ->get(route('documents.show', $document))
             ->assertForbidden();
 
+        $this->actingAs($otherUser)
+            ->patch(route('documents.analysis-instruction.update', $document), [
+                'analysis_instruction' => 'Чужое поручение',
+            ])
+            ->assertForbidden();
+
         $this->assertDatabaseCount('documents', 1);
+        $this->assertDatabaseHas('documents', [
+            'id' => $document->id,
+            'analysis_instruction' => 'Провести юридический анализ',
+        ]);
     }
 
     private function workspaceFor(User $user): Workspace

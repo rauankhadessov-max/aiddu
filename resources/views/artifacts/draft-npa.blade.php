@@ -4,7 +4,13 @@
     :description="$artifact->draftPackage->analysis->title"
 >
     <div class="draft-npa-preview space-y-6" data-presentation-version="{{ $presentation['version'] }}">
-        <div class="print-controls flex justify-end">
+        <div class="print-controls flex flex-wrap justify-end gap-3">
+            <form method="POST" action="{{ route('artifacts.docx.download', $artifact) }}">
+                @csrf
+                <button type="submit" class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700">
+                    Скачать DOCX
+                </button>
+            </form>
             <a href="{{ route('draft-packages.show', $artifact->draftPackage) }}" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300">
                 Вернуться к пакету
             </a>

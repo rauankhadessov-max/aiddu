@@ -7,6 +7,7 @@ use Illuminate\Support\Facades\Route;
 use App\Http\Controllers\SourceController;
 use App\Http\Controllers\DraftPackageController;
 use App\Http\Controllers\ArtifactController;
+use App\Http\Controllers\ArtifactDocxController;
 
 
 Route::get('/', function () {
@@ -72,6 +73,9 @@ Route::put('/sources/{source}/versions/{version}', [SourceController::class, 'up
 
     Route::get('/artifacts/{artifact}', [ArtifactController::class, 'show'])
         ->name('artifacts.show');
+
+    Route::post('/artifacts/{artifact}/docx', [ArtifactDocxController::class, 'download'])
+        ->name('artifacts.docx.download');
 
     Route::get('/workspaces', [WorkspaceController::class, 'index'])
         ->name('workspaces.index');

@@ -39,7 +39,7 @@
         @endif
 
         <section class="grid gap-5 md:grid-cols-2">
-            @foreach ($draftPackage->artifacts as $artifact)
+            @foreach ($draftPackage->artifacts->where('format', 'structured_json') as $artifact)
                 <a href="{{ route('artifacts.show', $artifact) }}" class="rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-blue-300 hover:shadow-sm">
                     <div class="text-xs font-semibold uppercase tracking-wide text-blue-600">
                         {{ $artifact->artifact_type === 'comparative_table' ? 'Сравнительная таблица' : 'Проект НПА' }}

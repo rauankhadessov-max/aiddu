@@ -4,11 +4,13 @@ namespace App\Models;
 
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
 
 class Artifact extends Model
 {
     protected $fillable = [
         'draft_package_id',
+        'source_artifact_id',
         'created_by',
         'artifact_type',
         'format',
@@ -19,6 +21,10 @@ class Artifact extends Model
         'filename',
         'mime_type',
         'file_size',
+        'renderer_version',
+        'source_content_hash',
+        'logical_content_hash',
+        'binary_sha256',
         'status',
         'generated_at',
     ];
@@ -39,5 +45,15 @@ class Artifact extends Model
     public function creator(): BelongsTo
     {
         return $this->belongsTo(User::class, 'created_by');
+    }
+
+    public function sourceArtifact(): BelongsTo
+    {
+        return $this->belongsTo(self::class, 'source_artifact_id');
+    }
+
+    public function representations(): HasMany
+    {
+        return $this->hasMany(self::class, 'source_artifact_id');
     }
 }

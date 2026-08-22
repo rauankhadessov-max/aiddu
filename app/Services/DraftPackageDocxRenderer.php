@@ -12,7 +12,7 @@ class DraftPackageDocxRenderer
 {
     public function __construct(private readonly LegalDocumentFormatter $formatter) {}
 
-    public function render(Artifact $sourceArtifact): string
+    public function render(Artifact $sourceArtifact, array $renderContext = []): string
     {
         if ($sourceArtifact->format !== 'structured_json' || ! is_array($sourceArtifact->content)) {
             throw new RuntimeException('DOCX можно сформировать только из canonical structured JSON Artifact.');
@@ -20,7 +20,13 @@ class DraftPackageDocxRenderer
 
         $phpWord = $this->document();
         match ($sourceArtifact->artifact_type) {
-            'comparative_table' => $this->comparativeTable($phpWord, $sourceArtifact->content),
+            'comparative_table' => $this->comparativeTable(
+                $phpWord,
+                $sourceArtifact->content,
+                is_array($renderContext['draft_npa_content'] ?? null)
+                    ? $renderContext['draft_npa_content']
+                    : null,
+            ),
             'draft_npa' => $this->draftNpa($phpWord, $sourceArtifact->content),
             default => throw new RuntimeException('Этот тип Artifact не поддерживает DOCX export.'),
         };
@@ -83,7 +89,7 @@ class DraftPackageDocxRenderer
         return $phpWord;
     }
 
-    private function comparativeTable(PhpWord $phpWord, array $content): void
+    private function comparativeTable(PhpWord $phpWord, array $content, ?array $draftNpa): void
     {
         $section = $phpWord->addSection([
             'orientation' => 'landscape',
@@ -96,11 +102,18 @@ class DraftPackageDocxRenderer
             'headerHeight' => 360,
             'footerHeight' => 360,
         ]);
-        $section->addText((string) ($content['title'] ?? 'Сравнительная таблица'), [
-            'name' => 'Times New Roman',
-            'size' => 14,
-            'bold' => true,
-        ], 'LegalCentered');
+        foreach ($this->formatter->comparativeTableHeading($draftNpa) as $index => $line) {
+            $section->addText($line, [
+                'name' => 'Times New Roman',
+                'size' => $index === 0 ? 14 : 12,
+                'bold' => $index === 0,
+            ], [
+                'alignment' => 'center',
+                'spaceAfter' => $index === 0 ? 100 : 60,
+                'lineHeight' => 1.05,
+                'keepNext' => true,
+            ]);
+        }
 
         $phpWord->addTableStyle('ComparativeTable', [
             'borderSize' => 4,
@@ -112,7 +125,7 @@ class DraftPackageDocxRenderer
             'layout' => 'fixed',
         ]);
         $table = $section->addTable('ComparativeTable');
-        $widths = [600, 2400, 3900, 4400, 4404];
+        $widths = [550, 2100, 3600, 4550, 4904];
         $columns = array_values($content['columns'] ?? []);
         if (count($columns) !== 5) {
             throw new RuntimeException('Canonical comparative table должна содержать пять колонок.');
@@ -132,17 +145,23 @@ class DraftPackageDocxRenderer
 
         foreach ($content['rows'] ?? [] as $row) {
             $table->addRow(null, ['cantSplit' => true]);
+            $structuralElement = $this->formatter->compactCanonicalLocator(
+                (string) ($row['structural_element'] ?? ''),
+            );
             $cells = [
-                [(string) ($row['number'] ?? ''), 'center'],
-                [$this->compactCanonicalLocator((string) ($row['structural_element'] ?? '')), 'left'],
-                [(string) ($row['current_text'] ?? ''), 'both'],
-                [(string) ($row['proposed_text'] ?? ''), 'both'],
-                [(string) ($row['justification'] ?? ''), 'both'],
+                [[(string) ($row['number'] ?? '')], 'center'],
+                [[$structuralElement], 'left'],
+                [$this->formatter->currentTextBlocks($row['current_text'] ?? null, $structuralElement), 'both'],
+                [$this->formatter->proposedTextBlocks(
+                    $row['proposed_text'] ?? null,
+                    $structuralElement,
+                    $row['current_text'] ?? null,
+                ), 'both'],
+                [$this->formatter->textBlocks($row['justification'] ?? null), 'both'],
             ];
 
-            foreach ($cells as $index => [$text, $alignment]) {
+            foreach ($cells as $index => [$blocks, $alignment]) {
                 $cell = $table->addCell($widths[$index], ['valign' => 'top']);
-                $blocks = $this->formatter->textBlocks($text);
                 if ($blocks === []) {
                     $blocks = [''];
                 }
@@ -266,20 +285,5 @@ class DraftPackageDocxRenderer
                 'color' => '7F6000',
             ], ['leftIndent' => 360, 'spaceAfter' => 80]);
         }
-    }
-
-    private function compactCanonicalLocator(string $locator): string
-    {
-        $parts = preg_split('/\s*,\s*/u', trim($locator));
-        if ($parts === false || count($parts) < 2) {
-            return $locator;
-        }
-        foreach ($parts as $index => $part) {
-            if (preg_match('/^(?:статья|бап)\s+/ui', $part) === 1) {
-                return implode(', ', array_slice($parts, $index));
-            }
-        }
-
-        return $locator;
     }
 }

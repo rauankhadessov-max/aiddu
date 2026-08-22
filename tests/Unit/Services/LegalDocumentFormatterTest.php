@@ -63,6 +63,77 @@ class LegalDocumentFormatterTest extends TestCase
         $this->assertSame(str_replace("\n\n", "\n", $text), implode("\n", $blocks));
     }
 
+    public function test_new_structural_elements_receive_human_readable_absent_labels(): void
+    {
+        $this->assertSame(
+            ['Статья 30-1. Отсутствует.'],
+            $this->formatter->currentTextBlocks('Отсутствует', 'глава 6, статья 30-1'),
+        );
+        $this->assertSame(
+            ['3. Отсутствует.'],
+            $this->formatter->currentTextBlocks('Отсутствует', 'статья 10, пункт 3'),
+        );
+        $this->assertSame(
+            ['7-2) отсутствует.'],
+            $this->formatter->currentTextBlocks('Отсутствует', 'статья 26, пункт 1, подпункт 7-2'),
+        );
+        $this->assertSame(
+            ['Отсутствует'],
+            $this->formatter->currentTextBlocks('Отсутствует', 'неоднозначный locator'),
+        );
+        $this->assertSame(
+            ['Действующая редакция'],
+            $this->formatter->currentTextBlocks('Действующая редакция', 'статья 30-1'),
+        );
+    }
+
+    public function test_proposed_locator_is_presented_exactly_once(): void
+    {
+        $article = $this->formatter->proposedTextBlocks(
+            "Статья 30-1. Заголовок\n1. Первый пункт.",
+            'статья 30-1',
+            'Отсутствует',
+        );
+        $this->assertSame('Статья 30-1. Заголовок', $article[0]);
+        $this->assertSame(1, substr_count(implode("\n", $article), 'Статья 30-1.'));
+
+        $subparagraph = $this->formatter->proposedTextBlocks(
+            '7-2) осуществлять реструктуризацию;',
+            'статья 26, пункт 1, подпункт 7-2)',
+            'Отсутствует',
+        );
+        $this->assertSame(['7-2) осуществлять реструктуризацию;'], $subparagraph);
+
+        $missing = $this->formatter->proposedTextBlocks(
+            'Осуществлять реструктуризацию;',
+            'статья 26, пункт 1, подпункт 7-2)',
+            'Отсутствует',
+        );
+        $this->assertSame(['7-2)', 'Осуществлять реструктуризацию;'], $missing);
+    }
+
+    public function test_comparative_heading_uses_canonical_draft_npa_metadata(): void
+    {
+        $this->assertSame([
+            'СРАВНИТЕЛЬНАЯ ТАБЛИЦА',
+            'к проекту Закона Республики Казахстан',
+            '«О внесении изменений в Закон Республики Казахстан «О жилищных отношениях»»',
+        ], $this->formatter->comparativeTableHeading([
+            'act_type' => 'Закон Республики Казахстан',
+            'title' => 'О внесении изменений в Закон Республики Казахстан "О жилищных отношениях"',
+        ]));
+
+        $this->assertSame('к проекту Кодекса Республики Казахстан', $this->formatter->comparativeTableHeading([
+            'act_type' => 'Кодекс Республики Казахстан',
+        ])[1]);
+        $this->assertSame('к проекту Приказа Министра', $this->formatter->comparativeTableHeading([
+            'act_type' => 'Приказ Министра',
+        ])[1]);
+        $this->assertSame('к проекту Постановления Правительства Республики Казахстан', $this->formatter->comparativeTableHeading([
+            'act_type' => 'Постановление Правительства Республики Казахстан',
+        ])[1]);
+    }
+
     public function test_command_is_split_only_at_existing_line_breaks_and_ambiguous_text_falls_back(): void
     {
         $text = "В статье 26:\n\nпункт 1 дополнить подпунктом 7-2) следующего содержания:\n\n«7-2) исходная формулировка;»;";

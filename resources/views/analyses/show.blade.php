@@ -165,19 +165,32 @@
                     Пакет сформирован на основании подтверждённых поправок этого анализа.
                 </p>
 
-                <div class="mt-5 flex flex-wrap gap-3">
-                    @foreach ($analysis->draftPackage->artifacts as $artifact)
-                        <a
-                            href="{{ route('artifacts.show', $artifact) }}"
-                            class="rounded-xl border border-indigo-300 bg-white px-4 py-3 text-sm font-semibold text-indigo-700 hover:border-indigo-500"
-                        >
-                            {{ $artifact->artifact_type === 'comparative_table' ? 'Сравнительная таблица' : 'Проект НПА' }} — Открыть
-                        </a>
+                <div class="mt-5 grid gap-3 md:grid-cols-2">
+                    @foreach ($analysis->draftPackage->canonicalArtifacts as $artifact)
+                        <article class="rounded-xl border border-indigo-200 bg-white p-4" data-logical-document="{{ $artifact->artifact_type }}">
+                            <h3 class="font-semibold text-slate-900">
+                                {{ $artifact->artifact_type === 'comparative_table' ? 'Сравнительная таблица' : 'Проект НПА' }}
+                            </h3>
+                            <div class="mt-3 flex flex-wrap gap-2">
+                                <a
+                                    href="{{ route('artifacts.show', $artifact) }}"
+                                    class="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-semibold text-indigo-700 hover:border-indigo-500"
+                                >
+                                    Открыть
+                                </a>
+                                <form method="POST" action="{{ route('artifacts.docx.download', $artifact) }}">
+                                    @csrf
+                                    <button type="submit" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+                                        Скачать DOCX
+                                    </button>
+                                </form>
+                            </div>
+                        </article>
                     @endforeach
                 </div>
 
-                <a href="{{ route('draft-packages.show', $analysis->draftPackage) }}" class="mt-4 inline-block text-sm font-semibold text-indigo-700 hover:text-indigo-500">
-                    Открыть весь пакет
+                <a href="{{ route('draft-packages.show', $analysis->draftPackage) }}" class="mt-4 inline-block text-sm text-slate-600 underline decoration-slate-300 underline-offset-4 hover:text-indigo-700">
+                    Обзор пакета и предупреждений
                 </a>
             @else
                 <p class="mt-2 text-sm text-slate-600">

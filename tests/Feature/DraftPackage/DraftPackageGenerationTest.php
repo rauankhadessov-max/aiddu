@@ -9,6 +9,7 @@ use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\ArtifactDocxService;
 use App\Services\DraftPackageInputBuilder;
 use App\Services\LegalAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -112,11 +113,28 @@ class DraftPackageGenerationTest extends TestCase
         $this->fakeValidJustifications();
         $this->actingAs($user)->post(route('draft-packages.store', $analysis));
         $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+        config()->set('filesystems.disks.local.root', sys_get_temp_dir().'/aiddu-docx-ui-tests-'.uniqid());
+        app('filesystem')->forgetDisk('local');
+        $canonicalArtifacts = $package->artifacts->where('format', 'structured_json');
+        foreach ($canonicalArtifacts as $artifact) {
+            app(ArtifactDocxService::class)->generate($artifact, $user);
+        }
+        $representations = $package->artifacts()->where('format', 'docx')->get();
 
         $response = $this->actingAs($user)->get(route('analyses.show', $analysis));
-        $response->assertOk()->assertSee('Сравнительная таблица — Открыть');
-        foreach ($package->artifacts as $artifact) {
+        $response->assertOk()
+            ->assertSee('Сравнительная таблица')
+            ->assertSee('Проект НПА')
+            ->assertSee('Обзор пакета и предупреждений')
+            ->assertDontSee('Открыть весь пакет');
+        $this->assertSame(2, substr_count($response->getContent(), 'data-logical-document='));
+        $this->assertSame(2, substr_count($response->getContent(), 'Скачать DOCX'));
+        foreach ($canonicalArtifacts as $artifact) {
             $response->assertSee(route('artifacts.show', $artifact), false);
+        }
+        foreach ($representations as $representation) {
+            $response->assertDontSee(route('artifacts.show', $representation), false);
+            $response->assertDontSee($representation->artifact_type);
         }
     }
 
@@ -159,10 +177,18 @@ class DraftPackageGenerationTest extends TestCase
 
         $this->actingAs($user)->get(route('artifacts.show', $table))
             ->assertOk()
-            ->assertSee('Отсутствует')
+            ->assertSee('7-2) отсутствует.')
+            ->assertSee('Статья 30-1. Отсутствует.')
+            ->assertSee('СРАВНИТЕЛЬНАЯ ТАБЛИЦА')
+            ->assertSee('к проекту Закона Республики Казахстан')
             ->assertSee('статья 26, пункт 1, подпункт 7-2)')
             ->assertSee('статья 30-1')
             ->assertDontSee('глава 6, статья', false)
+            ->assertSee('width: 3.5%', false)
+            ->assertSee('width: 13.4%', false)
+            ->assertSee('width: 22.9%', false)
+            ->assertSee('width: 29%', false)
+            ->assertSee('width: 31.2%', false)
             ->assertSee('Юридические предупреждения')
             ->assertSee('Проверить согласованность новой статьи с иными нормами.')
             ->assertSee('legal-text-block', false)

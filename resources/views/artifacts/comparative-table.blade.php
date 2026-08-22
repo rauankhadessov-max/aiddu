@@ -17,8 +17,22 @@
         </div>
 
         <section class="print-surface overflow-hidden rounded-2xl border border-slate-200 bg-white">
+            <header class="comparative-heading px-6 py-6 text-center">
+                @foreach ($presentation['heading'] as $index => $line)
+                    <p class="{{ $index === 0 ? 'text-lg font-bold tracking-wide' : 'mt-1 text-sm font-medium' }}">
+                        {{ $line }}
+                    </p>
+                @endforeach
+            </header>
             <div class="comparative-table-wrap overflow-x-auto">
-                <table class="comparative-table min-w-full divide-y divide-slate-200 text-left text-sm">
+                <table class="comparative-table w-full table-fixed divide-y divide-slate-200 text-left text-sm">
+                    <colgroup>
+                        <col style="width: 3.5%">
+                        <col style="width: 13.4%">
+                        <col style="width: 22.9%">
+                        <col style="width: 29%">
+                        <col style="width: 31.2%">
+                    </colgroup>
                     <thead class="bg-slate-50 text-xs font-semibold uppercase tracking-wide text-slate-600">
                         <tr>
                             @foreach ($presentation['columns'] as $column)
@@ -30,18 +44,18 @@
                         @foreach ($presentation['rows'] as $row)
                             <tr data-amendment-id="{{ $row['amendment_id'] }}">
                                 <td class="px-4 py-4 font-semibold">{{ $row['number'] }}</td>
-                                <td class="min-w-52 px-4 py-4 font-semibold">{{ $row['structural_element'] }}</td>
-                                <td class="min-w-72 px-4 py-4">
+                                <td class="px-4 py-4 font-semibold">{{ $row['structural_element'] }}</td>
+                                <td class="px-4 py-4">
                                     @foreach ($row['current_blocks'] as $block)
                                         <p class="legal-text-block">{{ $block }}</p>
                                     @endforeach
                                 </td>
-                                <td class="min-w-96 px-4 py-4">
+                                <td class="px-4 py-4">
                                     @foreach ($row['proposed_blocks'] as $block)
                                         <p class="legal-text-block">{{ $block }}</p>
                                     @endforeach
                                 </td>
-                                <td class="min-w-80 px-4 py-4">
+                                <td class="px-4 py-4">
                                     @forelse ($row['justification_blocks'] as $block)
                                         <p class="legal-text-block">{{ $block }}</p>
                                     @empty
@@ -77,7 +91,14 @@
         @endif
     </div>
 
+    <style>
+        .comparative-table { min-width: 1100px; }
+        .comparative-table th,
+        .comparative-table td { overflow-wrap: anywhere; word-break: normal; }
+    </style>
+
     <style media="print">
         @page { size: A4 landscape; margin: 10mm; }
+        .comparative-table { min-width: 0; }
     </style>
 </x-layouts.app>

@@ -16,7 +16,7 @@ class DraftPackageController extends Controller
     public function show(DraftPackage $draftPackage, DraftPackagePresentationService $presentationService)
     {
         Gate::authorize('view', $draftPackage);
-        $draftPackage->load(['analysis.document', 'artifacts']);
+        $draftPackage->load(['analysis.document', 'canonicalArtifacts']);
 
         $presentation = $presentationService->package($draftPackage);
 

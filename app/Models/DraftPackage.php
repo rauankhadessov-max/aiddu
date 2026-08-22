@@ -37,4 +37,13 @@ class DraftPackage extends Model
     {
         return $this->hasMany(Artifact::class);
     }
+
+    public function canonicalArtifacts(): HasMany
+    {
+        return $this->hasMany(Artifact::class)
+            ->whereNull('source_artifact_id')
+            ->where('format', 'structured_json')
+            ->whereIn('artifact_type', ['comparative_table', 'draft_npa'])
+            ->orderBy('id');
+    }
 }

@@ -7,7 +7,10 @@ use App\Models\DraftPackage;
 
 class DraftPackagePresentationService
 {
-    public function __construct(private readonly LegalDocumentFormatter $formatter) {}
+    public function __construct(
+        private readonly LegalDocumentFormatter $formatter,
+        private readonly DraftPackagePresentationContext $context,
+    ) {}
 
     public function package(DraftPackage $package): array
     {
@@ -21,20 +24,30 @@ class DraftPackagePresentationService
     public function comparativeTable(Artifact $artifact): array
     {
         $content = $artifact->content;
+        $context = $this->context->for($artifact);
         $snapshots = collect(data_get($artifact->draftPackage->plan, 'amendment_snapshots', []))
             ->keyBy('amendment_id');
 
         $rows = collect($content['rows'] ?? [])->map(function (array $row) use ($snapshots): array {
             $snapshot = $snapshots->get($row['amendment_id'] ?? null, []);
 
+            $structuralElement = $this->formatter->compactLocator(
+                is_array($snapshot['target'] ?? null) ? $snapshot['target'] : [],
+                $this->formatter->compactCanonicalLocator((string) ($row['structural_element'] ?? '')),
+            );
+
             return [
                 ...$row,
-                'structural_element' => $this->formatter->compactLocator(
-                    is_array($snapshot['target'] ?? null) ? $snapshot['target'] : [],
-                    (string) ($row['structural_element'] ?? ''),
+                'structural_element' => $structuralElement,
+                'current_blocks' => $this->formatter->currentTextBlocks(
+                    $row['current_text'] ?? null,
+                    $structuralElement,
                 ),
-                'current_blocks' => $this->formatter->textBlocks($row['current_text'] ?? null),
-                'proposed_blocks' => $this->formatter->textBlocks($row['proposed_text'] ?? null),
+                'proposed_blocks' => $this->formatter->proposedTextBlocks(
+                    $row['proposed_text'] ?? null,
+                    $structuralElement,
+                    $row['current_text'] ?? null,
+                ),
                 'justification_blocks' => $this->formatter->textBlocks($row['justification'] ?? null),
                 'warnings' => array_values($row['warnings'] ?? []),
             ];
@@ -42,6 +55,7 @@ class DraftPackagePresentationService
 
         return [
             'version' => LegalDocumentFormatter::PRESENTATION_VERSION,
+            'heading' => $this->formatter->comparativeTableHeading($context['draft_npa_content']),
             'columns' => $content['columns'] ?? [],
             'rows' => $rows,
             'warnings' => array_values($content['warnings'] ?? []),

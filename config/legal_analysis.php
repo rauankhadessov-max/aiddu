@@ -48,8 +48,8 @@ return [
         'justification_validator_version' => 'draft-package-justification-v1',
         'timeout_seconds' => 180,
         'current_text_absent_label' => 'Отсутствует',
-        'presentation_version' => 'legal-html-v2',
-        'docx_renderer_version' => 'legal-docx-v1',
+        'presentation_version' => 'legal-html-v3',
+        'docx_renderer_version' => 'legal-docx-v2',
         'docx_storage_disk' => 'local',
         'unknown_requirement_label' => 'Необходимо уточнить дополнительные данные для завершения проекта НПА',
         'requirement_labels' => [

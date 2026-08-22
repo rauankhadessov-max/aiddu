@@ -17,6 +17,7 @@ class ArtifactDocxService
     public function __construct(
         private readonly DraftPackageDocxRenderer $renderer,
         private readonly DraftPackageInputBuilder $hasher,
+        private readonly DraftPackagePresentationContext $presentationContext,
     ) {}
 
     public function generate(Artifact $sourceArtifact, User $user): Artifact
@@ -25,20 +26,35 @@ class ArtifactDocxService
 
         $rendererVersion = (string) config('legal_analysis.draft_package.docx_renderer_version');
         $disk = (string) config('legal_analysis.draft_package.docx_storage_disk', 'local');
-        $sourceHash = $this->hasher->hashPayload($sourceArtifact->content);
+        $renderContext = $this->presentationContext->for($sourceArtifact);
+        $sourceHash = $this->hasher->hashPayload([
+            'canonical_artifact_hash' => $renderContext['canonical_hash'],
+            'canonical_draft_npa_hash' => $sourceArtifact->artifact_type === 'comparative_table'
+                ? $renderContext['draft_npa_hash']
+                : null,
+        ]);
         $representationType = $sourceArtifact->artifact_type.'_docx';
         $logicalHash = $this->hasher->hashPayload([
             'artifact_type' => $representationType,
             'renderer_version' => $rendererVersion,
-            'canonical_content' => $sourceArtifact->content,
+            'source_content_hash' => $sourceHash,
         ]);
+        $renderManifest = [
+            'renderer_version' => $rendererVersion,
+            'canonical_artifact_id' => $sourceArtifact->id,
+            'canonical_comparative_table_hash' => $renderContext['comparative_table_hash'],
+            'canonical_draft_npa_artifact_id' => $renderContext['draft_npa_artifact_id'],
+            'canonical_draft_npa_hash' => $renderContext['draft_npa_hash'],
+            'source_content_hash' => $sourceHash,
+            'composite_logical_hash' => $logicalHash,
+        ];
 
         $existing = $this->findRepresentation($sourceArtifact, $representationType, $rendererVersion, $sourceHash);
         if ($existing !== null && $this->isValid($existing)) {
             return $existing;
         }
 
-        $temporaryPath = $this->renderer->render($sourceArtifact);
+        $temporaryPath = $this->renderer->render($sourceArtifact, $renderContext);
         try {
             $this->assertValidDocx($temporaryPath);
             $binaryHash = hash_file('sha256', $temporaryPath);
@@ -55,6 +71,7 @@ class ArtifactDocxService
                 $sourceHash,
                 $representationType,
                 $logicalHash,
+                $renderManifest,
                 $temporaryPath,
                 $binaryHash,
                 $fileSize,
@@ -86,7 +103,7 @@ class ArtifactDocxService
                     'artifact_type' => $representationType,
                     'format' => 'docx',
                     'title' => $source->title.' (DOCX)',
-                    'content' => null,
+                    'content' => ['render_manifest' => $renderManifest],
                     'storage_disk' => $disk,
                     'storage_path' => $storagePath,
                     'filename' => $this->filename($source),

@@ -110,7 +110,7 @@ class AnalysisController extends Controller
             'sourceVersions.source',
             'findings',
             'amendments',
-            'draftPackage.artifacts',
+            'draftPackage.canonicalArtifacts',
         ]);
 
         return view('analyses.show', compact('analysis'));

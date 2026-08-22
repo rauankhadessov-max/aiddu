@@ -10,6 +10,7 @@ use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\ArtifactDocxService;
+use App\Services\DraftPackageInputBuilder;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -23,7 +24,8 @@ class ArtifactDocxExportTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
-        Storage::fake('local');
+        config()->set('filesystems.disks.local.root', sys_get_temp_dir().'/aiddu-docx-tests-'.uniqid());
+        app('filesystem')->forgetDisk('local');
         Http::fake();
     }
 
@@ -50,23 +52,47 @@ class ArtifactDocxExportTest extends TestCase
         $representation = Artifact::where('source_artifact_id', $table->id)->sole();
         $this->assertSame('comparative_table_docx', $representation->artifact_type);
         $this->assertSame('docx', $representation->format);
+        $this->assertSame('legal-docx-v2', $representation->renderer_version);
         $this->assertSame('comparative-table-package-'.$table->draft_package_id.'.docx', $representation->filename);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->source_content_hash);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->logical_content_hash);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->binary_sha256);
         $this->assertFalse(str_contains($representation->storage_path, '..'));
+        $draft = $table->draftPackage->artifacts()->where('artifact_type', 'draft_npa')->sole();
+        $manifest = $representation->content['render_manifest'];
+        $this->assertSame(
+            app(DraftPackageInputBuilder::class)->hashPayload($canonical),
+            $manifest['canonical_comparative_table_hash'],
+        );
+        $this->assertSame(
+            app(DraftPackageInputBuilder::class)->hashPayload($draft->content),
+            $manifest['canonical_draft_npa_hash'],
+        );
+        $this->assertSame($representation->logical_content_hash, $manifest['composite_logical_hash']);
 
         $xml = $this->documentXml($representation);
         $this->assertSame(5, $this->xpath($xml, '/w:document/w:body/w:tbl[1]/w:tr[1]/w:tc')->length);
         $this->assertGreaterThan(0, $this->xpath($xml, '//w:tr[1]/w:trPr/w:tblHeader')->length);
         $text = $this->plainText($xml);
+        $this->assertStringContainsString('СРАВНИТЕЛЬНАЯ ТАБЛИЦА', $text);
+        $this->assertStringContainsString('к проекту Закона Республики Казахстан', $text);
+        $this->assertStringContainsString('О внесении изменений и дополнений', $text);
         $this->assertStringContainsString('статья 26, пункт 1, подпункт 7-2)', $text);
         $this->assertStringContainsString('статья 30-1', $text);
         $this->assertStringNotContainsString('глава 6, статья', $text);
-        $this->assertStringContainsString('Отсутствует', $text);
+        $this->assertStringContainsString('7-2) отсутствует.', $text);
+        $this->assertStringContainsString('Статья 30-1. Отсутствует.', $text);
+        $this->assertSame(1, substr_count($text, 'Статья 30-1. Реструктуризация задолженности'));
         $this->assertStringContainsString('Юридические предупреждения', $text);
         $this->assertStringContainsString('<script>alert(1)</script>', $text);
         $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $xml);
+        $grid = $this->xpath($xml, '/w:document/w:body/w:tbl[1]/w:tblGrid/w:gridCol');
+        $this->assertSame([550, 2100, 3600, 4550, 4904], collect(iterator_to_array($grid))->map(
+            fn (\DOMElement $node) => (int) $node->getAttributeNS(
+                'http://schemas.openxmlformats.org/wordprocessingml/2006/main',
+                'w',
+            ),
+        )->all());
 
         $second = $this->actingAs($user)->post(route('artifacts.docx.download', $table));
         $second->assertOk();

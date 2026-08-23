@@ -22,6 +22,11 @@ class AnalysisPolicy
         return $this->ownsAnalysis($user, $analysis);
     }
 
+    public function delete(User $user, Analysis $analysis): bool
+    {
+        return $this->ownsAnalysis($user, $analysis);
+    }
+
     private function ownsAnalysis(User $user, Analysis $analysis): bool
     {
         return $analysis->user_id === $user->id

@@ -7,6 +7,7 @@ use App\Models\Document;
 use App\Models\SourceVersion;
 use Illuminate\Http\Request;
 use App\Services\AnalysisExecutionService;
+use App\Services\AnalysisDeletionService;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -162,6 +163,25 @@ public function index(Request $request)
         ->get();
 
     return view('analyses.index', compact('analyses'));
+}
+
+public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDeletionService)
+{
+    Gate::authorize('delete', $analysis);
+
+    try {
+        $analysisDeletionService->delete($analysis);
+
+        return redirect()
+            ->route('analyses.index')
+            ->with('success', 'Анализ и сформированные результаты удалены.');
+    } catch (ValidationException $exception) {
+        return back()->with('error', $exception->validator->errors()->first());
+    } catch (Throwable $exception) {
+        report($exception);
+
+        return back()->with('error', 'Не удалось безопасно удалить анализ. Попробуйте позже.');
+    }
 }
 
 private function sourceVersionsAvailableFor(Document $document)

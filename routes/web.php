@@ -36,6 +36,9 @@ Route::get('/analyses/{analysis}/edit', [AnalysisWorkflowController::class, 'edi
 Route::patch('/analyses/{analysis}', [AnalysisWorkflowController::class, 'update'])
     ->name('analyses.workflow.update');
 
+Route::delete('/analyses/{analysis}', [AnalysisController::class, 'destroy'])
+    ->name('analyses.destroy');
+
 Route::get('/workspaces/{workspace}/sources', [WorkspaceController::class, 'sources'])
     ->name('workspaces.sources');
 

@@ -32,9 +32,42 @@
                             @else
                                 <a href="{{ route('analyses.show', $analysis) }}" class="rounded-lg border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300">Открыть</a>
                             @endif
+
+                            @if ($analysis->status === 'processing')
+                                <button type="button" disabled class="cursor-not-allowed rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-400" title="Дождитесь завершения анализа">Удалить</button>
+                            @else
+                                <button
+                                    type="button"
+                                    x-data
+                                    x-on:click.prevent="$dispatch('open-modal', 'delete-analysis-{{ $analysis->id }}')"
+                                    class="rounded-lg border border-red-200 px-4 py-2 text-sm font-semibold text-red-700 hover:bg-red-50"
+                                >
+                                    Удалить
+                                </button>
+                            @endif
                         </div>
                     </div>
                 </article>
+
+                @if ($analysis->status !== 'processing')
+                    <x-modal name="delete-analysis-{{ $analysis->id }}" maxWidth="md" focusable>
+                        <div class="p-6">
+                            <h2 class="text-lg font-bold text-slate-900">Удалить анализ?</h2>
+                            <p class="mt-3 text-sm leading-6 text-slate-600">
+                                Будут удалены результаты анализа и сформированные документы.<br>
+                                Исходные данные рабочего дела и нормативная база сохранятся.
+                            </p>
+                            <div class="mt-6 flex justify-end gap-3">
+                                <button type="button" x-on:click="$dispatch('close')" class="rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700">Отмена</button>
+                                <form method="POST" action="{{ route('analyses.destroy', $analysis) }}">
+                                    @csrf
+                                    @method('DELETE')
+                                    <button type="submit" class="rounded-xl bg-red-600 px-4 py-2 text-sm font-semibold text-white hover:bg-red-500">Удалить</button>
+                                </form>
+                            </div>
+                        </div>
+                    </x-modal>
+                @endif
             @empty
                 <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
                     <h2 class="text-lg font-bold text-slate-900">Анализов пока нет</h2>

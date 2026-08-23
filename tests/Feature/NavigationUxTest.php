@@ -20,12 +20,11 @@ class NavigationUxTest extends TestCase
     public function test_sidebar_has_working_mvp_navigation_and_disabled_future_modules(): void
     {
         $user = User::factory()->create();
-
         $this->actingAs($user)
             ->get(route('dashboard'))
             ->assertOk()
             ->assertSee(route('workspaces.index'), false)
-            ->assertSee(route('workspaces.index', ['start' => 'analysis']), false)
+            ->assertSee(route('analyses.workflow.create'), false)
             ->assertSee(route('sources.index'), false)
             ->assertSee(route('analyses.index'), false)
             ->assertSee('AI-консультант')
@@ -35,14 +34,19 @@ class NavigationUxTest extends TestCase
             ->assertDontSee('href="#"', false);
     }
 
-    public function test_new_analysis_entry_point_shows_required_instruction(): void
+    public function test_new_analysis_entry_point_opens_unified_form(): void
     {
         $user = User::factory()->create();
+        $this->workspaceFor($user);
 
         $this->actingAs($user)
-            ->get(route('workspaces.index', ['start' => 'analysis']))
+            ->get(route('analyses.workflow.create'))
             ->assertOk()
-            ->assertSee('Выберите рабочее дело → откройте нужный документ → нажмите «Новый анализ»');
+            ->assertSee('Название анализа')
+            ->assertSee('Действующая редакция')
+            ->assertSee('Предлагаемая редакция')
+            ->assertSee('Поручение ИИ')
+            ->assertSee('Нормативная база');
     }
 
     public function test_sources_and_analysis_history_keep_the_main_sidebar(): void
@@ -64,7 +68,7 @@ class NavigationUxTest extends TestCase
             ->assertSee('История анализов');
     }
 
-    public function test_workspace_page_lists_documents_and_connected_sources(): void
+    public function test_workspace_page_lists_recent_analyses_and_connected_sources_without_documents(): void
     {
         $owner = User::factory()->create();
         $workspace = $this->workspaceFor($owner);
@@ -72,15 +76,26 @@ class NavigationUxTest extends TestCase
         [$source] = $this->sourceWithVersion();
         $workspace->sources()->attach($source->id);
 
+        $analysis = Analysis::create([
+            'workspace_id' => $workspace->id,
+            'document_id' => $document->id,
+            'user_id' => $owner->id,
+            'title' => 'Последний юридический анализ',
+            'analysis_type' => 'amendment_review',
+            'instruction' => 'Проверить',
+            'status' => 'completed',
+            'version' => 1,
+        ]);
+
         $this->actingAs($owner)
             ->get(route('workspaces.show', $workspace))
             ->assertOk()
-            ->assertSee($document->title)
-            ->assertSee(route('documents.show', $document), false)
-            ->assertSee(route('documents.create', $workspace), false)
+            ->assertSee($analysis->title)
+            ->assertSee(route('analyses.show', $analysis), false)
+            ->assertDontSee(route('documents.show', $document), false)
+            ->assertDontSee($document->document_type)
             ->assertSee($source->title)
-            ->assertSee('1 редакций')
-            ->assertSee(route('sources.show', $source), false)
+            ->assertDontSee('1 редакций')
             ->assertSee(route('workspaces.sources', $workspace), false);
     }
 
@@ -107,7 +122,7 @@ class NavigationUxTest extends TestCase
             ->assertSee($analysis->title)
             ->assertSee('completed')
             ->assertSee(route('analyses.show', $analysis), false)
-            ->assertSee(route('analyses.create', $document), false);
+            ->assertSee(route('analyses.workflow.create', ['document' => $document->id]), false);
     }
 
     public function test_document_and_analysis_validation_errors_are_visible(): void

@@ -138,7 +138,7 @@
 
                 @unless (blank($document->analysis_instruction))
                     <a
-                        href="{{ route('analyses.create', $document) }}"
+                        href="{{ route('analyses.workflow.create', ['document' => $document->id]) }}"
                         class="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
                     >
                         + Новый анализ

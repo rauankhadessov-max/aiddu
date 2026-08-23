@@ -8,6 +8,7 @@ use App\Http\Controllers\SourceController;
 use App\Http\Controllers\DraftPackageController;
 use App\Http\Controllers\ArtifactController;
 use App\Http\Controllers\ArtifactDocxController;
+use App\Http\Controllers\AnalysisWorkflowController;
 
 
 Route::get('/', function () {
@@ -22,6 +23,18 @@ Route::middleware('auth')->group(function () {
 
 Route::get('/analyses', [AnalysisController::class, 'index'])
     ->name('analyses.index');
+
+Route::get('/analyses/create', [AnalysisWorkflowController::class, 'create'])
+    ->name('analyses.workflow.create');
+
+Route::post('/analyses', [AnalysisWorkflowController::class, 'store'])
+    ->name('analyses.workflow.store');
+
+Route::get('/analyses/{analysis}/edit', [AnalysisWorkflowController::class, 'edit'])
+    ->name('analyses.workflow.edit');
+
+Route::patch('/analyses/{analysis}', [AnalysisWorkflowController::class, 'update'])
+    ->name('analyses.workflow.update');
 
 Route::get('/workspaces/{workspace}/sources', [WorkspaceController::class, 'sources'])
     ->name('workspaces.sources');

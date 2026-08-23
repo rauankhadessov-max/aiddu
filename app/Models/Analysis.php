@@ -75,4 +75,15 @@ class Analysis extends Model
     {
         return $this->hasOne(DraftPackage::class);
     }
+
+    public function statusLabel(): string
+    {
+        return match ($this->status) {
+            'draft' => 'Черновик',
+            'processing' => 'Выполняется',
+            'completed' => 'Завершён',
+            'failed' => 'Требует внимания',
+            default => 'Сохранён',
+        };
+    }
 }

@@ -105,9 +105,9 @@
             </a>
 
             <a
-                href="{{ route('workspaces.index', ['start' => 'analysis']) }}"
+                href="{{ route('analyses.workflow.create') }}"
                 class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
-                {{ request()->routeIs('workspaces.index') && request('start') === 'analysis'
+                {{ request()->routeIs('analyses.workflow.*')
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
@@ -272,7 +272,7 @@
 <nav class="app-mobile-nav border-t border-white/10 bg-slate-950 px-4 py-3 text-white lg:hidden">
     <div class="flex gap-2 overflow-x-auto">
         <a href="{{ route('workspaces.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Рабочие дела</a>
-        <a href="{{ route('workspaces.index', ['start' => 'analysis']) }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Новый анализ</a>
+        <a href="{{ route('analyses.workflow.create') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Новый анализ</a>
         <a href="{{ route('sources.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Нормативная база</a>
         <a href="{{ route('analyses.index') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">История</a>
         <a href="{{ route('profile.edit') }}" class="shrink-0 rounded-lg px-3 py-2 text-sm text-slate-200">Настройки</a>

@@ -23,7 +23,7 @@
 
                     <div class="mt-7 flex flex-wrap gap-3">
                         <a
-                            href="{{ route('workspaces.index', ['start' => 'analysis']) }}"
+                            href="{{ route('analyses.workflow.create') }}"
                             class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
                         >
                             Создать новый анализ
@@ -82,7 +82,7 @@
 
             <div class="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
 
-                <a href="{{ route('workspaces.index', ['start' => 'analysis']) }}" class="rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-blue-300 hover:shadow-md">
+                <a href="{{ route('analyses.workflow.create') }}" class="rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-blue-300 hover:shadow-md">
                     <div class="flex h-11 w-11 items-center justify-center rounded-xl bg-blue-50 font-bold text-blue-700">
                         01
                     </div>

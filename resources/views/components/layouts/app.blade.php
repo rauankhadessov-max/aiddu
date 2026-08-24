@@ -93,7 +93,7 @@
             <a
                 href="{{ route('workspaces.index') }}"
                 class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
-                {{ request()->routeIs('workspaces.*') && request('start') !== 'analysis'
+                {{ request()->routeIs('workspaces.*') && !request()->routeIs('workspaces.sources*') && request('start') !== 'analysis'
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >
@@ -121,7 +121,7 @@
             <a
                 href="{{ route('sources.index') }}"
                 class="flex items-center gap-3 rounded-xl px-4 py-3 text-sm font-medium transition
-                {{ request()->routeIs('sources.*', 'source-versions.*')
+                {{ request()->routeIs('sources.*', 'source-versions.*', 'workspaces.sources*')
                     ? 'bg-blue-600 text-white'
                     : 'text-slate-300 hover:bg-white/10 hover:text-white' }}"
             >

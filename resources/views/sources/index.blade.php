@@ -1,78 +1,44 @@
 <x-layouts.app
     title="Нормативная база — AI DDU Assistant"
     heading="Нормативная база"
-    description="Нормативные правовые акты, используемые при юридическом анализе"
+    description="Выберите рабочее дело, нормативную базу которого нужно открыть"
 >
     <div class="space-y-6">
-
         @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                {{ session('success') }}
-            </div>
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
         @endif
 
-        <div class="flex flex-wrap items-center justify-between gap-4">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-900">Нормативные источники</h2>
-                <p class="mt-1 text-sm text-slate-500">
-                    Глобальная нормативная база и сохранённые редакции НПА.
-                </p>
-            </div>
+        @if (session('error'))
+            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{{ session('error') }}</div>
+        @endif
 
-            @can('create', App\Models\Source::class)
-                <div class="flex flex-wrap gap-3">
-                    @if (auth()->user()->is_admin && Illuminate\Support\Facades\Schema::hasTable('regulatory_profiles'))
-                        <a href="{{ route('regulatory-profiles.default.edit') }}" class="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700">Стартовый профиль</a>
-                    @endif
-                    <a href="{{ route('sources.create') }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Добавить НПА</a>
-                </div>
-            @endcan
+        <div>
+            <h2 class="text-2xl font-bold text-slate-900">Рабочие дела</h2>
+            <p class="mt-1 text-sm text-slate-500">Нормативная база формируется отдельно для каждого рабочего дела.</p>
         </div>
 
-        <div class="space-y-4">
-            @forelse ($sources as $source)
-                <a
-                    href="{{ route('sources.show', $source) }}"
-                    class="block rounded-2xl border border-slate-200 bg-white p-6 transition hover:border-blue-300"
-                >
-                    <div class="flex items-start justify-between gap-6">
-                        <div>
-                            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                {{ $source->typeLabel() }} · {{ $source->isGlobal() ? 'Глобальный НПА' : 'Мой НПА' }}
-                            </div>
-
-                            <h2 class="mt-2 text-lg font-bold text-slate-900">{{ $source->title }}</h2>
-
-                            <div class="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
-                                @if ($source->number)
-                                    <span>№ {{ $source->number }}</span>
-                                @endif
-
-                                @if ($source->adoption_date)
-                                    <span>от {{ $source->adoption_date->format('d.m.Y') }}</span>
-                                @endif
-
-                                @if ($source->issuing_authority)
-                                    <span>{{ $source->issuing_authority }}</span>
-                                @endif
-                            </div>
+        @forelse ($workspaces as $workspace)
+            <article class="rounded-2xl border border-slate-200 bg-white p-6">
+                <div class="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+                    <div class="min-w-0">
+                        <div class="flex flex-wrap items-center gap-3">
+                            <h3 class="text-lg font-bold text-slate-900">{{ $workspace->title }}</h3>
+                            @if ($workspace->regulatoryProfile?->is_active && $workspace->regulatoryProfile->purpose === App\Models\RegulatoryProfile::NEW_USER_DEFAULT)
+                                <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">По умолчанию</span>
+                            @endif
                         </div>
-
-                        <div class="shrink-0 text-right">
-                            <div class="text-2xl font-bold text-slate-900">{{ $source->versions_count }}</div>
-                            <div class="text-xs text-slate-500">редакций</div>
-                        </div>
+                        <p class="mt-2 text-sm text-slate-500">Подключено НПА: <span class="font-semibold text-slate-700">{{ $workspace->sources_count }}</span></p>
                     </div>
-                </a>
-            @empty
-                <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
-                    <h2 class="text-lg font-bold text-slate-900">Нормативная база пока пуста</h2>
-                    <p class="mt-2 text-sm text-slate-500">
-                        Доступные нормативные источники появятся здесь.
-                    </p>
-                </div>
-            @endforelse
-        </div>
 
+                    <a href="{{ route('workspaces.sources', $workspace) }}" class="shrink-0 rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-blue-500">Открыть нормативную базу</a>
+                </div>
+            </article>
+        @empty
+            <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+                <h3 class="font-bold text-slate-900">Рабочих дел пока нет</h3>
+                <p class="mt-2 text-sm text-slate-500">Создайте рабочее дело, чтобы сформировать его нормативную базу.</p>
+                <a href="{{ route('workspaces.create') }}" class="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white">Создать рабочее дело</a>
+            </div>
+        @endforelse
     </div>
 </x-layouts.app>

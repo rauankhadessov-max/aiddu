@@ -80,6 +80,14 @@ class WorkspaceSourceVersionResolver
 
     public function currentVersionIds(User $user, Workspace $workspace): Collection
     {
+        return $this->currentVersions($user, $workspace)
+            ->pluck('id')
+            ->map(fn ($id) => (int) $id)
+            ->values();
+    }
+
+    public function currentVersions(User $user, Workspace $workspace): Collection
+    {
         $today = now()->startOfDay();
 
         return $this->eligibleQuery($user, $workspace)
@@ -101,11 +109,11 @@ class WorkspaceSourceVersionResolver
                     ->first();
 
                 if ($effective) {
-                    return (int) $effective->id;
+                    return $effective;
                 }
 
                 if ($versions->every(fn (SourceVersion $version) => $version->effective_date === null)) {
-                    return (int) $versions->max('id');
+                    return $versions->sortByDesc('id')->first();
                 }
 
                 return null;

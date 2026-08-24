@@ -1,130 +1,63 @@
-<x-app-layout>
+@php
+    $globalSources = $workspace->sources->whereNull('user_id');
+    $personalSources = $workspace->sources->where('user_id', auth()->id());
+@endphp
 
-    <x-slot name="header">
-        <div>
-            <h2 class="text-xl font-bold text-slate-900">
-                Добавить источник
-            </h2>
+<x-layouts.app
+    :title="'Нормативная база — '.$workspace->title.' — AI DDU Assistant'"
+    heading="Нормативная база рабочего дела"
+    :description="$workspace->title"
+>
+    <div class="space-y-7">
+        @if (session('success'))
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
+        @endif
 
-            <p class="mt-1 text-sm text-slate-500">
-                Рабочее дело: {{ $workspace->title }}
-            </p>
-        </div>
-    </x-slot>
-
-    <div class="py-8">
-        <div class="mx-auto max-w-6xl px-4 sm:px-6 lg:px-8">
-
-            <div class="mb-6">
-                <h1 class="text-2xl font-bold text-slate-900">
-                    Нормативная база
-                </h1>
-
-                <p class="mt-1 text-sm text-slate-500">
-                    Выберите нормативный источник, который нужно подключить к рабочему делу.
-                </p>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <div class="flex flex-wrap items-center gap-3">
+                <h2 class="text-2xl font-bold text-slate-900">{{ $workspace->title }}</h2>
+                @if ($workspace->regulatoryProfile?->is_active && $workspace->regulatoryProfile->purpose === App\Models\RegulatoryProfile::NEW_USER_DEFAULT)
+                    <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">По умолчанию</span>
+                @endif
             </div>
 
-            <div class="space-y-4">
+            <a href="{{ route('workspaces.sources.create', $workspace) }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Добавить НПА</a>
+        </div>
 
-                @forelse ($sources as $source)
+        @foreach ([['title' => 'Глобальные НПА', 'sources' => $globalSources], ['title' => 'Мои НПА', 'sources' => $personalSources]] as $group)
+            <section>
+                <h3 class="text-lg font-bold text-slate-900">{{ $group['title'] }}</h3>
+                <div class="mt-4 space-y-4">
+                    @forelse ($group['sources'] as $source)
+                        @php($currentVersion = $currentVersions->get($source->id))
+                        <article class="rounded-2xl border border-slate-200 bg-white p-6">
+                            <div class="flex flex-col justify-between gap-5 sm:flex-row sm:items-start">
+                                <div class="min-w-0">
+                                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">{{ $source->typeLabel() }}</div>
+                                    <h4 class="mt-2 text-lg font-bold text-slate-900">{{ $source->title }}</h4>
 
-                    @php
-                        $alreadyAttached = $workspace->sources->contains('id', $source->id);
-                    @endphp
-
-                    <div class="rounded-2xl border border-slate-200 bg-white p-6">
-
-                        <div class="flex items-start justify-between gap-6">
-
-                            <div class="min-w-0">
-
-                                <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                    {{ $source->type }}
+                                    @if ($currentVersion)
+                                        <div class="mt-3 text-sm text-slate-600">
+                                            <span class="font-semibold">Текущая редакция:</span> {{ $currentVersion->version_name }}
+                                            @if ($currentVersion->effective_date)
+                                                <span class="text-slate-500">· действует с {{ $currentVersion->effective_date->format('d.m.Y') }}</span>
+                                            @endif
+                                        </div>
+                                    @else
+                                        <p class="mt-3 text-sm text-amber-700">Нормативный текст ещё не добавлен. Этот НПА пока не участвует в юридическом анализе.</p>
+                                    @endif
                                 </div>
 
-                                <h2 class="mt-2 text-lg font-bold text-slate-900">
-                                    {{ $source->title }}
-                                </h2>
-
-                                <div class="mt-3 flex flex-wrap gap-4 text-sm text-slate-500">
-
-                                    @if ($source->number)
-                                        <span>№ {{ $source->number }}</span>
-                                    @endif
-
-                                    @if ($source->adoption_date)
-                                        <span>
-                                            от {{ $source->adoption_date->format('d.m.Y') }}
-                                        </span>
-                                    @endif
-
-                                    <span>
-                                        Редакций: {{ $source->versions->count() }}
-                                    </span>
-
-                                </div>
-
+                                <a href="{{ route('sources.show', ['source' => $source, 'workspace' => $workspace->id]) }}" class="shrink-0 rounded-xl border border-slate-300 px-4 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300">Открыть</a>
                             </div>
+                        </article>
+                    @empty
+                        <p class="py-2 text-sm text-slate-500">В этом разделе пока нет подключённых НПА.</p>
+                    @endforelse
+                </div>
+            </section>
+        @endforeach
 
-                            <div class="shrink-0">
-
-                                @if ($alreadyAttached)
-
-                                    <span class="inline-flex rounded-xl bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-700">
-                                        Уже подключен
-                                    </span>
-
-                                @else
-
-                                    <form
-                                        method="POST"
-                                        action="{{ route('workspaces.sources.attach', [$workspace, $source]) }}"
-                                    >
-                                        @csrf
-
-                                        <button
-                                            type="submit"
-                                            class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
-                                        >
-                                            Подключить
-                                        </button>
-                                    </form>
-
-                                @endif
-
-                            </div>
-
-                        </div>
-
-                    </div>
-
-                @empty
-
-                    <div class="rounded-2xl border border-slate-200 bg-white p-8">
-                        <h2 class="font-bold text-slate-900">
-                            Нормативная база пуста
-                        </h2>
-
-                        <p class="mt-2 text-sm text-slate-500">
-                            Сначала добавьте нормативный правовой акт в разделе «Нормативная база».
-                        </p>
-                    </div>
-
-                @endforelse
-
-            </div>
-
-            <div class="mt-6">
-                <a
-                    href="{{ route('workspaces.show', $workspace) }}"
-                    class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700"
-                >
-                    ← Рабочее дело
-                </a>
-            </div>
-
-        </div>
+        <a href="{{ route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← К рабочим делам</a>
     </div>
-
-</x-app-layout>
+</x-layouts.app>

@@ -4,9 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\RegulatoryProfile;
 use App\Models\Source;
+use App\Services\RegulatoryProfileWorkspaceSynchronizer;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Facades\Schema;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 
 class RegulatoryProfileController extends Controller
@@ -22,7 +24,7 @@ class RegulatoryProfileController extends Controller
         return view('regulatory-profiles.edit', compact('profile', 'sources'));
     }
 
-    public function update(Request $request)
+    public function update(Request $request, RegulatoryProfileWorkspaceSynchronizer $profileSynchronizer)
     {
         $profile = $this->profile();
         Gate::authorize('update', $profile);
@@ -39,9 +41,13 @@ class RegulatoryProfileController extends Controller
             throw ValidationException::withMessages(['source_ids' => 'В стартовый профиль можно включать только глобальные НПА.']);
         }
 
-        $profile->sources()->sync($ids->mapWithKeys(fn ($id, $index) => [
-            $id => ['sort_order' => $index, 'is_primary' => $index === 0],
-        ])->all());
+        DB::transaction(function () use ($profile, $ids, $profileSynchronizer) {
+            $profile->sources()->sync($ids->mapWithKeys(fn ($id, $index) => [
+                $id => ['sort_order' => $index, 'is_primary' => $index === 0],
+            ])->all());
+
+            $profileSynchronizer->sync($profile->fresh());
+        });
 
         return back()->with('success', 'Состав стартового нормативного профиля сохранён.');
     }

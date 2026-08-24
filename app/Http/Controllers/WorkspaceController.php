@@ -6,6 +6,7 @@ use App\Models\Workspace;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
+use App\Services\WorkspaceSourceVersionResolver;
 
 class WorkspaceController extends Controller
 {
@@ -60,18 +61,21 @@ class WorkspaceController extends Controller
         return view('workspaces.show', compact('workspace'));
     }
 
-public function sources(Workspace $workspace)
+public function sources(Workspace $workspace, WorkspaceSourceVersionResolver $sourceVersionResolver)
 {
     Gate::authorize('view', $workspace);
 
-    $sources = \App\Models\Source::visibleTo(request()->user())
-        ->with('versions')
-        ->latest()
-        ->get();
+    $workspace->load([
+        'regulatoryProfile',
+        'sources' => fn ($query) => $query
+            ->visibleTo(request()->user())
+            ->orderBy('title'),
+    ]);
+    $currentVersions = $sourceVersionResolver
+        ->currentVersions(request()->user(), $workspace)
+        ->keyBy('source_id');
 
-    $workspace->load('sources');
-
-    return view('workspaces.sources', compact('workspace', 'sources'));
+    return view('workspaces.sources', compact('workspace', 'currentVersions'));
 }
 
 public function attachSource(Workspace $workspace, \App\Models\Source $source)

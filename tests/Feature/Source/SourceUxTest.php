@@ -32,9 +32,10 @@ class SourceUxTest extends TestCase
     public function test_add_source_uses_sidebar_and_only_simplified_fields(): void
     {
         $admin = User::factory()->admin()->create();
+        $workspace = $this->workspace($admin);
 
         $this->actingAs($admin)
-            ->get(route('sources.create'))
+            ->get(route('workspaces.sources.create', $workspace))
             ->assertOk()
             ->assertSee('AI DDU Assistant')
             ->assertSee('Рабочие дела')
@@ -56,12 +57,14 @@ class SourceUxTest extends TestCase
     public function test_url_only_source_is_active_and_creates_no_fake_version(): void
     {
         $admin = User::factory()->admin()->create();
+        $workspace = $this->workspace($admin);
 
-        $this->actingAs($admin)->post(route('sources.store'), [
+        $this->actingAs($admin)->post(route('workspaces.sources.store', $workspace), [
             'title' => 'Закон по официальной ссылке',
             'type' => 'law',
             'input_method' => 'url',
             'official_url' => 'https://adilet.zan.kz/rus/docs/Z000000001',
+            'visibility' => 'personal',
         ])->assertRedirect();
 
         $source = Source::sole();
@@ -81,16 +84,18 @@ class SourceUxTest extends TestCase
     public function test_docx_source_atomically_creates_version_available_to_analysis_flow(): void
     {
         $admin = User::factory()->admin()->create();
+        $workspace = $this->workspace($admin);
         $docx = $this->docxUpload([
             'Статья 1. Общие положения',
             'Настоящий Закон регулирует общественные отношения.',
         ]);
 
-        $this->actingAs($admin)->post(route('sources.store'), [
+        $this->actingAs($admin)->post(route('workspaces.sources.store', $workspace), [
             'title' => 'Закон из DOCX',
             'type' => 'law',
             'input_method' => 'docx',
             'docx_file' => $docx,
+            'visibility' => 'personal',
         ])->assertRedirect();
 
         $source = Source::sole();
@@ -101,15 +106,6 @@ class SourceUxTest extends TestCase
         $this->assertSame($expected, $version->text);
         $this->assertSame(hash('sha256', $expected), $version->hash);
         $this->assertSame([], Storage::disk('local')->allFiles('source_versions'));
-
-        $workspace = Workspace::create([
-            'user_id' => $admin->id,
-            'reference_number' => 'WS-DOCX-'.uniqid(),
-            'title' => 'Рабочее дело DOCX',
-            'category' => 'other',
-            'status' => 'draft',
-        ]);
-        $workspace->sources()->attach($source->id);
 
         $this->actingAs($admin)
             ->get(route('analyses.workflow.create', ['workspace' => $workspace->id]))
@@ -122,18 +118,20 @@ class SourceUxTest extends TestCase
     public function test_docx_extraction_failure_rolls_back_source(): void
     {
         $admin = User::factory()->admin()->create();
+        $workspace = $this->workspace($admin);
         $extractor = $this->mock(DocxTextExtractor::class);
         $extractor->shouldReceive('extract')->once()->andThrow(new RuntimeException('broken docx'));
 
         $this->actingAs($admin)
-            ->from(route('sources.create'))
-            ->post(route('sources.store'), [
+            ->from(route('workspaces.sources.create', $workspace))
+            ->post(route('workspaces.sources.store', $workspace), [
                 'title' => 'Повреждённый НПА',
                 'type' => 'law',
                 'input_method' => 'docx',
                 'docx_file' => $this->docxUpload(['Текст']),
+                'visibility' => 'personal',
             ])
-            ->assertRedirect(route('sources.create'))
+            ->assertRedirect(route('workspaces.sources.create', $workspace))
             ->assertSessionHasErrors('docx_file');
 
         $this->assertDatabaseCount('sources', 0);
@@ -184,5 +182,16 @@ class SourceUxTest extends TestCase
             null,
             true,
         );
+    }
+
+    private function workspace(User $user): Workspace
+    {
+        return Workspace::create([
+            'user_id' => $user->id,
+            'reference_number' => 'WS-SOURCE-'.uniqid(),
+            'title' => 'Рабочее дело НПА',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
     }
 }

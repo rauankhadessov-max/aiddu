@@ -98,4 +98,48 @@ class RegulatoryProfileTest extends TestCase
 
         $this->assertDatabaseCount('workspaces', 0);
     }
+
+    public function test_profile_update_adds_new_global_sources_to_existing_workspaces_without_removing_personal_sources(): void
+    {
+        $admin = User::factory()->admin()->create();
+        $firstUser = User::factory()->create();
+        $secondUser = User::factory()->create();
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $existing = Source::create(['title' => 'Существующий глобальный НПА', 'type' => 'law', 'status' => 'active']);
+        $added = Source::create(['title' => 'Новый глобальный НПА', 'type' => 'code', 'status' => 'active']);
+        $personal = Source::create(['title' => 'Личный НПА', 'type' => 'order', 'status' => 'active']);
+        $personal->user()->associate($firstUser);
+        $personal->save();
+        $profile->sources()->attach($existing, ['sort_order' => 0, 'is_primary' => true]);
+
+        $firstWorkspace = app(DefaultWorkspaceProvisioner::class)->provision($firstUser);
+        $secondWorkspace = app(DefaultWorkspaceProvisioner::class)->provision($secondUser);
+        $firstWorkspace->sources()->attach($personal);
+        $unrelated = Workspace::create([
+            'user_id' => $firstUser->id,
+            'reference_number' => 'WS-UNRELATED',
+            'title' => 'Другое дело',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+
+        $this->actingAs($admin)->patch(route('regulatory-profiles.default.update'), [
+            'source_ids' => [$existing->id, $added->id],
+        ])->assertRedirect();
+
+        foreach ([$firstWorkspace, $secondWorkspace] as $workspace) {
+            $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $workspace->id, 'source_id' => $added->id]);
+        }
+        $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $firstWorkspace->id, 'source_id' => $personal->id]);
+        $this->assertDatabaseMissing('workspace_sources', ['workspace_id' => $unrelated->id, 'source_id' => $added->id]);
+
+        $this->actingAs($admin)->patch(route('regulatory-profiles.default.update'), [
+            'source_ids' => [$added->id],
+        ])->assertRedirect();
+
+        $this->assertDatabaseMissing('regulatory_profile_sources', ['regulatory_profile_id' => $profile->id, 'source_id' => $existing->id]);
+        $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $firstWorkspace->id, 'source_id' => $existing->id]);
+        $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $firstWorkspace->id, 'source_id' => $personal->id]);
+        $this->assertSame(1, \DB::table('workspace_sources')->where('workspace_id', $firstWorkspace->id)->where('source_id', $added->id)->count());
+    }
 }

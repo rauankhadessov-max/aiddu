@@ -2,9 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Http\Requests\StoreSourceRequest;
 use App\Models\Source;
-use App\Services\SourceCreationService;
 use App\Services\SourceVersionContentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -12,43 +10,35 @@ use Illuminate\Support\Facades\Gate;
 
 class SourceController extends Controller
 {
-    public function index()
+    public function index(Request $request)
     {
-        $sources = Source::visibleTo(request()->user())
-            ->withCount('versions')
+        $workspaces = $request->user()
+            ->workspaces()
+            ->with('regulatoryProfile')
+            ->withCount([
+                'sources as sources_count' => fn ($query) => $query->visibleTo($request->user()),
+            ])
             ->latest()
             ->get();
 
-        return view('sources.index', compact('sources'));
+        return view('sources.index', compact('workspaces'));
     }
 
     public function create()
     {
-        Gate::authorize('create', Source::class);
-
-        return view('sources.create');
-    }
-
-    public function store(StoreSourceRequest $request, SourceCreationService $creationService)
-    {
-        Gate::authorize('create', Source::class);
-
-        $validated = $request->validated();
-        $source = $request->user()->is_admin
-            ? $creationService->createGlobal($validated, $request->file('docx_file'))
-            : $creationService->createPersonal($request->user(), $validated, $request->file('docx_file'));
-
         return redirect()
-            ->route('sources.show', $source)
-            ->with(
-                'success',
-                $validated['input_method'] === 'docx'
-                    ? 'НПА и редакция нормативного текста добавлены.'
-                    : 'Ссылка сохранена. Добавьте редакцию нормативного текста, чтобы использовать НПА в юридическом анализе.',
-            );
+            ->route('sources.index')
+            ->with('error', 'Сначала выберите рабочее дело, в которое нужно добавить НПА.');
     }
 
-    public function show(Source $source)
+    public function store()
+    {
+        return redirect()
+            ->route('sources.index')
+            ->with('error', 'Сначала выберите рабочее дело, в которое нужно добавить НПА.');
+    }
+
+    public function show(Request $request, Source $source)
     {
         Gate::authorize('view', $source);
 
@@ -56,7 +46,13 @@ class SourceController extends Controller
             'versions' => fn ($query) => $query->latest('effective_date'),
         ]);
 
-        return view('sources.show', compact('source'));
+        $workspaceContext = $request->filled('workspace')
+            ? $request->user()->workspaces()
+                ->whereHas('sources', fn ($query) => $query->whereKey($source->id))
+                ->find($request->integer('workspace'))
+            : null;
+
+        return view('sources.show', compact('source', 'workspaceContext'));
     }
 
     public function createVersion(Source $source)

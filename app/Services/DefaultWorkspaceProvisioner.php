@@ -11,6 +11,11 @@ use RuntimeException;
 
 class DefaultWorkspaceProvisioner
 {
+    public function __construct(
+        private readonly RegulatoryProfileWorkspaceSynchronizer $profileSynchronizer,
+    ) {
+    }
+
     public function defaultProfile(): RegulatoryProfile
     {
         return RegulatoryProfile::query()
@@ -52,16 +57,7 @@ class DefaultWorkspaceProvisioner
                 ]);
             }
 
-            $sources = $profile->sources()
-                ->whereNull('sources.user_id')
-                ->whereNull('sources.deleted_at')
-                ->get();
-
-            $workspace->sources()->syncWithoutDetaching(
-                $sources->mapWithKeys(fn ($source) => [
-                    $source->id => ['is_primary' => (bool) $source->pivot->is_primary],
-                ])->all(),
-            );
+            $this->profileSynchronizer->syncWorkspace($profile, $workspace);
 
             return $workspace->fresh('sources');
         });

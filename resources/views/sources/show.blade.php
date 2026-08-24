@@ -60,7 +60,7 @@
         </section>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
-            <a href="{{ route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
+            <a href="{{ $workspaceContext ? route('workspaces.sources', $workspaceContext) : route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
 
             @can('delete', $source)
                 <form method="POST" action="{{ route('sources.destroy', $source) }}" onsubmit="return confirm('Удалить НПА из доступной нормативной базы? Исторические анализы сохранятся.');">

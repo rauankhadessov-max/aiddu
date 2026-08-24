@@ -20,8 +20,10 @@ class SourceAuthorizationTest extends TestCase
         $global = $this->source('Глобальный НПА');
         $own = $this->source('Мой НПА', $user);
         $foreign = $this->source('Чужой НПА', $other);
+        $workspace = $this->workspace($user);
+        $workspace->sources()->attach([$global->id, $own->id, $foreign->id]);
 
-        $this->actingAs($user)->get(route('sources.index'))
+        $this->actingAs($user)->get(route('workspaces.sources', $workspace))
             ->assertOk()->assertSee($global->title)->assertSee($own->title)->assertDontSee($foreign->title);
         $this->actingAs($user)->get(route('sources.show', $global))->assertOk();
         $this->actingAs($user)->get(route('sources.show', $own))->assertOk();
@@ -36,11 +38,13 @@ class SourceAuthorizationTest extends TestCase
         $own = $this->source('Мой НПА', $user);
         $foreign = $this->source('Чужой НПА', $other);
         $ownVersion = $this->version($own);
+        $workspace = $this->workspace($user);
 
-        $this->actingAs($user)->get(route('sources.create'))->assertOk();
-        $this->actingAs($user)->post(route('sources.store'), $this->sourcePayload())->assertRedirect();
+        $this->actingAs($user)->get(route('workspaces.sources.create', $workspace))->assertOk();
+        $this->actingAs($user)->post(route('workspaces.sources.store', $workspace), $this->sourcePayload())->assertRedirect();
         $created = Source::where('title', 'Новый нормативный акт')->sole();
         $this->assertSame($user->id, $created->user_id);
+        $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $workspace->id, 'source_id' => $created->id]);
 
         $this->actingAs($user)->get(route('source-versions.create', $own))->assertOk();
         $this->actingAs($user)->post(route('source-versions.store', $own), $this->versionPayload())->assertRedirect();
@@ -58,8 +62,12 @@ class SourceAuthorizationTest extends TestCase
         $owner = User::factory()->create();
         $global = $this->source('Глобальный НПА');
         $foreign = $this->source('Личный НПА пользователя', $owner);
+        $workspace = $this->workspace($admin);
 
-        $this->actingAs($admin)->post(route('sources.store'), $this->sourcePayload())->assertRedirect();
+        $this->actingAs($admin)->post(route('workspaces.sources.store', $workspace), [
+            ...$this->sourcePayload(),
+            'visibility' => 'global',
+        ])->assertRedirect();
         $this->assertNull(Source::where('title', 'Новый нормативный акт')->sole()->user_id);
         $this->actingAs($admin)->get(route('source-versions.create', $global))->assertOk();
         $this->actingAs($admin)->get(route('sources.show', $foreign))->assertForbidden();

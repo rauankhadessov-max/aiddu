@@ -18,7 +18,20 @@ class ProfileTest extends TestCase
             ->actingAs($user)
             ->get('/profile');
 
-        $response->assertOk();
+        $response
+            ->assertOk()
+            ->assertSee('AI DDU Assistant')
+            ->assertSee('Рабочие дела')
+            ->assertSee('Настройки профиля')
+            ->assertSee('Данные профиля')
+            ->assertSee('Электронная почта')
+            ->assertSee('Изменение пароля')
+            ->assertSee('Текущий пароль')
+            ->assertSee('Подтверждение нового пароля')
+            ->assertSee('Удалить аккаунт')
+            ->assertDontSee('Profile Information')
+            ->assertDontSee('Update Password')
+            ->assertDontSee('Delete Account');
     }
 
     public function test_profile_information_can_be_updated(): void

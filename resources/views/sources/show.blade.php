@@ -1,185 +1,64 @@
-<x-app-layout>
+<x-layouts.app
+    :title="$source->title . ' — AI DDU Assistant'"
+    :heading="$source->title"
+    description="Нормативный источник и сохранённые редакции текста"
+>
+    <div class="space-y-6">
+        @if (session('success'))
+            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
+        @endif
 
-    <x-slot name="header">
-        <div>
-            <h2 class="text-xl font-bold text-slate-900">
-                {{ $source->title }}
-            </h2>
+        <section class="rounded-2xl border border-slate-200 bg-white p-6">
+            <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Вид НПА</div>
+            <div class="mt-2 font-semibold text-slate-900">{{ $source->typeLabel() }}</div>
 
-            <p class="mt-1 text-sm text-slate-500">
-                Карточка нормативного источника
-            </p>
-        </div>
-    </x-slot>
-
-    <div class="py-8">
-        <div class="mx-auto max-w-7xl space-y-6 px-4 sm:px-6 lg:px-8">
-
-            @if (session('success'))
-                <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">
-                    {{ session('success') }}
+            @if ($source->official_url)
+                <div class="mt-5 border-t border-slate-100 pt-5">
+                    <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Официальный источник</div>
+                    <a href="{{ $source->official_url }}" target="_blank" rel="noopener noreferrer" class="mt-2 block break-all text-sm font-semibold text-blue-600 underline">{{ $source->official_url }}</a>
+                    @if ($source->versions->isEmpty())
+                        <p class="mt-3 rounded-xl border border-amber-200 bg-amber-50 p-4 text-sm leading-6 text-amber-800">
+                            Для использования НПА в юридическом анализе добавьте редакцию нормативного текста.
+                        </p>
+                    @endif
                 </div>
             @endif
+        </section>
 
-            <div class="rounded-2xl border border-slate-200 bg-white p-6">
-
-                <div class="grid gap-6 md:grid-cols-3">
-
-                    <div>
-                        <div class="text-xs uppercase text-slate-500">Вид</div>
-                        <div class="mt-1 font-semibold">{{ $source->type }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-xs uppercase text-slate-500">Номер</div>
-                        <div class="mt-1 font-semibold">{{ $source->number ?: '—' }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-xs uppercase text-slate-500">Статус</div>
-                        <div class="mt-1 font-semibold">{{ $source->status }}</div>
-                    </div>
-
-                    <div>
-                        <div class="text-xs uppercase text-slate-500">Дата принятия</div>
-                        <div class="mt-1 font-semibold">
-                            {{ $source->adoption_date?->format('d.m.Y') ?? '—' }}
-                        </div>
-                    </div>
-
-                    <div class="md:col-span-2">
-                        <div class="text-xs uppercase text-slate-500">Орган</div>
-                        <div class="mt-1 font-semibold">
-                            {{ $source->issuing_authority ?: '—' }}
-                        </div>
-                    </div>
-
-                </div>
-
-                @if ($source->description)
-                    <div class="mt-6 border-t border-slate-200 pt-6 text-sm leading-7 text-slate-700">
-                        {{ $source->description }}
-                    </div>
-                @endif
-
-            </div>
-
-            <div class="flex items-center justify-between">
-
+        <section>
+            <div class="flex flex-wrap items-center justify-between gap-4">
                 <div>
-                    <h2 class="text-xl font-bold text-slate-900">
-                        Редакции
-                    </h2>
-
-                    <p class="mt-1 text-sm text-slate-500">
-                        Версии текста нормативного правового акта.
-                    </p>
+                    <h2 class="text-xl font-bold text-slate-900">Редакции нормативного текста</h2>
+                    <p class="mt-1 text-sm text-slate-500">Только сохранённые редакции могут использоваться в юридическом анализе.</p>
                 </div>
-
                 @can('update', $source)
-                    <a
-                        href="{{ route('source-versions.create', $source) }}"
-                        class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
-                    >
-                        + Добавить редакцию
-                    </a>
+                    <a href="{{ route('source-versions.create', $source) }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Добавить редакцию</a>
                 @endcan
-
             </div>
 
-            <div class="space-y-4">
-
+            <div class="mt-5 space-y-4">
                 @forelse ($source->versions as $version)
-
-                    <div class="rounded-2xl border border-slate-200 bg-white p-6">
-
-                        <div class="flex items-start justify-between gap-4">
-
+                    <article class="rounded-2xl border border-slate-200 bg-white p-6">
+                        <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                             <div>
-                                <h3 class="font-bold text-slate-900">
-                                    {{ $version->version_name }}
-                                </h3>
-
-                                <div class="mt-2 text-sm text-slate-500">
-                                    Действует с:
-                                    {{ $version->effective_date?->format('d.m.Y') ?? 'не указано' }}
-                                </div>
+                                <h3 class="font-bold text-slate-900">{{ $version->version_name }}</h3>
+                                <div class="mt-2 text-sm text-slate-500">Действует с: {{ $version->effective_date?->format('d.m.Y') ?? 'не указано' }}</div>
+                                <div class="mt-2 text-sm text-slate-500">Объём текста: {{ number_format(mb_strlen($version->text), 0, ',', ' ') }} символов</div>
                             </div>
-
-                            <div class="flex items-center gap-3">
-
-                            <span class="text-xs text-slate-400">
-                             ID {{ $version->id }}
-                            </span>
-
-    @can('update', $source)
-        <a
-            href="{{ route('source-versions.edit', [$source, $version]) }}"
-            class="rounded-lg border border-slate-300 px-3 py-2 text-xs font-semibold text-slate-700 hover:border-blue-300"
-        >
-            Редактировать
-        </a>
-    @endcan
-
-</div>
-
-<div class="mt-5 grid gap-4 md:grid-cols-3">
-
-    <div class="rounded-xl bg-slate-50 p-4">
-        <div class="text-xs uppercase text-slate-500">
-            Объём текста
-        </div>
-
-        <div class="mt-1 font-semibold text-slate-900">
-            {{ number_format(mb_strlen($version->text), 0, ',', ' ') }} символов
-        </div>
-    </div>
-
-    <div class="rounded-xl bg-slate-50 p-4">
-        <div class="text-xs uppercase text-slate-500">
-            Текст НПА
-        </div>
-
-        <div class="mt-1 font-semibold text-emerald-700">
-            Загружен
-        </div>
-    </div>
-
-    <div class="rounded-xl bg-slate-50 p-4">
-        <div class="text-xs uppercase text-slate-500">
-            Контрольная сумма
-        </div>
-
-        <div class="mt-1 truncate font-mono text-xs text-slate-700">
-            {{ $version->hash }}
-        </div>
-    </div>
-
-</div>
+                            @can('update', $source)
+                                <a href="{{ route('source-versions.edit', [$source, $version]) }}" class="rounded-lg border border-slate-300 px-3 py-2 text-sm font-semibold text-slate-700 hover:border-blue-300">Редактировать</a>
+                            @endcan
+                        </div>
+                    </article>
                 @empty
-
-                    <div class="rounded-2xl border border-slate-200 bg-white p-8">
-                        <h3 class="font-bold text-slate-900">
-                            Редакций пока нет
-                        </h3>
-
-                        <p class="mt-2 text-sm text-slate-500">
-                            Добавьте текст действующей редакции НПА.
-                        </p>
+                    <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
+                        <h3 class="font-bold text-slate-900">Редакций пока нет</h3>
+                        <p class="mt-2 text-sm text-slate-500">Добавьте полный текст редакции НПА.</p>
                     </div>
-
                 @endforelse
-
             </div>
+        </section>
 
-            <a
-                href="{{ route('sources.index') }}"
-                class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700"
-            >
-                ← Нормативная база
-            </a>
-
-        </div>
+        <a href="{{ route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
     </div>
-
-</x-app-layout>
+</x-layouts.app>

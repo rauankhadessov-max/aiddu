@@ -1,16 +1,8 @@
-<x-app-layout>
-
-    <x-slot name="header">
-        <div>
-            <h2 class="text-xl font-bold text-slate-900">
-                Редактирование редакции НПА
-            </h2>
-
-            <p class="mt-1 text-sm text-slate-500">
-                {{ $source->title }}
-            </p>
-        </div>
-    </x-slot>
+<x-layouts.app
+    title="Редактирование редакции — AI DDU Assistant"
+    heading="Редактирование редакции НПА"
+    :description="$source->title"
+>
 
     <div class="py-8">
         <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
@@ -115,4 +107,4 @@
         </div>
     </div>
 
-</x-app-layout>
+</x-layouts.app>

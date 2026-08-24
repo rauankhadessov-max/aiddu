@@ -29,4 +29,17 @@ class Source extends Model
     {
         return $this->hasMany(SourceVersion::class);
     }
+
+    public function typeLabel(): string
+    {
+        return match ($this->type) {
+            'law' => 'Закон',
+            'code' => 'Кодекс',
+            'government_resolution' => 'Постановление Правительства',
+            'order' => 'Приказ',
+            'rules' => 'Правила',
+            'methodology' => 'Методика',
+            default => 'Иное',
+        };
+    }
 }

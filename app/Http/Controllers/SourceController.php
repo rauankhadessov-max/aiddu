@@ -3,11 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Models\Source;
+use App\Services\SourceVersionContentService;
 use Illuminate\Http\Request;
-use App\Services\DocxTextExtractor;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Support\Facades\Storage;
-
+use Illuminate\Validation\Rule;
 
 class SourceController extends Controller
 {
@@ -27,26 +27,67 @@ class SourceController extends Controller
         return view('sources.create');
     }
 
-    public function store(Request $request)
+    public function store(Request $request, SourceVersionContentService $contentService)
     {
         Gate::authorize('create', Source::class);
 
         $validated = $request->validate([
             'title' => ['required', 'string', 'max:255'],
-            'type' => ['required', 'string', 'max:100'],
-            'number' => ['nullable', 'string', 'max:100'],
-            'adoption_date' => ['nullable', 'date'],
-            'issuing_authority' => ['nullable', 'string', 'max:255'],
-            'status' => ['required', 'string', 'max:100'],
-            'official_url' => ['nullable', 'url', 'max:1000'],
-            'description' => ['nullable', 'string'],
+            'type' => ['required', Rule::in([
+                'law',
+                'code',
+                'government_resolution',
+                'order',
+                'rules',
+                'methodology',
+                'other',
+            ])],
+            'input_method' => ['required', Rule::in(['docx', 'url'])],
+            'docx_file' => ['nullable', 'required_if:input_method,docx', 'file', 'mimes:docx', 'max:2048'],
+            'official_url' => ['nullable', 'required_if:input_method,url', 'url', 'max:1000'],
+        ], [
+            'title.required' => 'Укажите название НПА.',
+            'type.required' => 'Выберите вид НПА.',
+            'type.in' => 'Выбран недопустимый вид НПА.',
+            'input_method.required' => 'Выберите источник нормативного текста.',
+            'docx_file.required_if' => 'Выберите DOCX-файл нормативного акта.',
+            'docx_file.mimes' => 'Можно загрузить только файл в формате DOCX.',
+            'docx_file.max' => 'Размер DOCX-файла не должен превышать 2 МБ.',
+            'official_url.required_if' => 'Укажите официальную ссылку на НПА.',
+            'official_url.url' => 'Укажите корректную официальную ссылку.',
         ]);
 
-        $source = Source::create($validated);
+        $source = DB::transaction(function () use ($request, $validated, $contentService) {
+            $source = Source::create([
+                'title' => $validated['title'],
+                'type' => $validated['type'],
+                'status' => 'active',
+                'official_url' => $validated['input_method'] === 'url'
+                    ? $validated['official_url']
+                    : null,
+            ]);
+
+            if ($validated['input_method'] === 'docx') {
+                $contentService->create(
+                    $source,
+                    'Редакция из загруженного DOCX',
+                    null,
+                    null,
+                    $request->file('docx_file'),
+                );
+            }
+
+            return $source;
+        });
 
         return redirect()
             ->route('sources.show', $source)
-            ->with('success', 'Нормативный источник создан.');
+            ->with(
+                'success',
+                $validated['input_method'] === 'docx'
+                    ? 'НПА и редакция нормативного текста добавлены.'
+                    : 'Ссылка сохранена. Добавьте редакцию нормативного текста, чтобы использовать НПА в юридическом анализе.',
+            );
     }
 
     public function show(Source $source)
@@ -66,112 +107,68 @@ class SourceController extends Controller
     }
 
     public function storeVersion(
-    Request $request,
-    Source $source,
-    DocxTextExtractor $docxTextExtractor
-)
-{
-    Gate::authorize('update', $source);
+        Request $request,
+        Source $source,
+        SourceVersionContentService $contentService
+    ) {
+        Gate::authorize('update', $source);
 
-    $validated = $request->validate([
-        'version_name' => ['required', 'string', 'max:255'],
-        'effective_date' => ['nullable', 'date'],
-        'text' => ['nullable', 'string'],
-        'docx_file' => ['nullable', 'file', 'mimes:docx', 'max:2048'],
-    ]);
+        $validated = $request->validate([
+            'version_name' => ['required', 'string', 'max:255'],
+            'effective_date' => ['nullable', 'date'],
+            'text' => ['nullable', 'string'],
+            'docx_file' => ['nullable', 'file', 'mimes:docx', 'max:2048'],
+        ]);
 
-    if (!$request->hasFile('docx_file') && empty($validated['text'])) {
-        return back()
-            ->withErrors([
-                'text' => 'Введите текст редакции или загрузите DOCX-файл.',
-            ])
-            ->withInput();
+        $contentService->create(
+            $source,
+            $validated['version_name'],
+            $validated['effective_date'] ?? null,
+            $validated['text'] ?? null,
+            $request->file('docx_file'),
+        );
+
+        return redirect()
+            ->route('sources.show', $source)
+            ->with('success', 'Редакция НПА добавлена.');
     }
 
-    $text = $validated['text'] ?? null;
+    public function editVersion(Source $source, $version)
+    {
+        Gate::authorize('update', $source);
 
-    if ($request->hasFile('docx_file')) {
-        $file = $request->file('docx_file');
+        $version = $source->versions()->findOrFail($version);
 
-        $storedPath = $file->store('source_versions', 'local');
-
-        $absolutePath = Storage::disk('local')->path($storedPath);
-
-        $text = $docxTextExtractor->extract($absolutePath);
+        return view('sources.versions.edit', compact('source', 'version'));
     }
 
-    $normalizedText = trim($text);
+    public function updateVersion(
+        Request $request,
+        Source $source,
+        $version,
+        SourceVersionContentService $contentService
+    ) {
+        Gate::authorize('update', $source);
 
-    $source->versions()->create([
-        'version_name' => $validated['version_name'],
-        'effective_date' => $validated['effective_date'] ?? null,
-        'text' => $normalizedText,
-        'hash' => hash('sha256', $normalizedText),
-    ]);
+        $version = $source->versions()->findOrFail($version);
 
-    return redirect()
-        ->route('sources.show', $source)
-        ->with('success', 'Редакция НПА добавлена.');
-}
+        $validated = $request->validate([
+            'version_name' => ['required', 'string', 'max:255'],
+            'effective_date' => ['nullable', 'date'],
+            'text' => ['nullable', 'string'],
+            'docx_file' => ['nullable', 'file', 'mimes:docx', 'max:2048'],
+        ]);
 
-public function editVersion(Source $source, $version)
-{
-    Gate::authorize('update', $source);
+        $contentService->update(
+            $version,
+            $validated['version_name'],
+            $validated['effective_date'] ?? null,
+            $validated['text'] ?? null,
+            $request->file('docx_file'),
+        );
 
-    $version = $source->versions()->findOrFail($version);
-
-    return view('sources.versions.edit', compact('source', 'version'));
-}
-
-public function updateVersion(
-    Request $request,
-    Source $source,
-    $version,
-    DocxTextExtractor $docxTextExtractor
-)
-{
-    Gate::authorize('update', $source);
-
-    $version = $source->versions()->findOrFail($version);
-
-    $validated = $request->validate([
-        'version_name' => ['required', 'string', 'max:255'],
-        'effective_date' => ['nullable', 'date'],
-        'text' => ['nullable', 'string'],
-        'docx_file' => ['nullable', 'file', 'mimes:docx', 'max:2048'],
-    ]);
-
-    if (!$request->hasFile('docx_file') && empty($validated['text'])) {
-        return back()
-            ->withErrors([
-                'text' => 'Введите текст редакции или загрузите DOCX-файл.',
-            ])
-            ->withInput();
+        return redirect()
+            ->route('sources.show', $source)
+            ->with('success', 'Редакция НПА обновлена.');
     }
-
-    $text = $validated['text'] ?? null;
-
-    if ($request->hasFile('docx_file')) {
-        $file = $request->file('docx_file');
-
-        $storedPath = $file->store('source_versions', 'local');
-
-        $absolutePath = Storage::disk('local')->path($storedPath);
-
-        $text = $docxTextExtractor->extract($absolutePath);
-    }
-
-    $normalizedText = trim($text);
-
-    $version->update([
-        'version_name' => $validated['version_name'],
-        'effective_date' => $validated['effective_date'] ?? null,
-        'text' => $normalizedText,
-        'hash' => hash('sha256', $normalizedText),
-    ]);
-
-    return redirect()
-        ->route('sources.show', $source)
-        ->with('success', 'Редакция НПА обновлена.');
-}
 }

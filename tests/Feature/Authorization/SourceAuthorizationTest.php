@@ -100,7 +100,8 @@ class SourceAuthorizationTest extends TestCase
         return [
             'title' => 'Новый нормативный акт',
             'type' => 'law',
-            'status' => 'active',
+            'input_method' => 'url',
+            'official_url' => 'https://adilet.zan.kz/rus/docs/Z000000001',
         ];
     }
 

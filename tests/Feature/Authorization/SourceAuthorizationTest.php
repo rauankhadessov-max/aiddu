@@ -5,6 +5,7 @@ namespace Tests\Feature\Authorization;
 use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -12,104 +13,113 @@ class SourceAuthorizationTest extends TestCase
 {
     use RefreshDatabase;
 
-    public function test_regular_user_can_read_global_sources_but_cannot_manage_them(): void
+    public function test_user_sees_global_and_own_sources_but_not_foreign_personal_sources(): void
     {
         $user = User::factory()->create();
-        [$source, $version] = $this->sourceFixture();
+        $other = User::factory()->create();
+        $global = $this->source('Глобальный НПА');
+        $own = $this->source('Мой НПА', $user);
+        $foreign = $this->source('Чужой НПА', $other);
 
-        $this->actingAs($user)
-            ->get(route('sources.index'))
-            ->assertOk()
-            ->assertDontSee(route('sources.create'));
-
-        $this->actingAs($user)
-            ->get(route('sources.show', $source))
-            ->assertOk()
-            ->assertDontSee(route('source-versions.create', $source))
-            ->assertDontSee(route('source-versions.edit', [$source, $version]));
-
-        $this->actingAs($user)->get(route('sources.create'))->assertForbidden();
-        $this->actingAs($user)->post(route('sources.store'), $this->sourcePayload())->assertForbidden();
-        $this->actingAs($user)->get(route('source-versions.create', $source))->assertForbidden();
-        $this->actingAs($user)->post(route('source-versions.store', $source), $this->versionPayload())->assertForbidden();
-        $this->actingAs($user)->get(route('source-versions.edit', [$source, $version]))->assertForbidden();
-        $this->actingAs($user)->put(route('source-versions.update', [$source, $version]), $this->versionPayload('Новая редакция'))->assertForbidden();
-
-        $this->assertDatabaseCount('sources', 1);
-        $this->assertDatabaseCount('source_versions', 1);
+        $this->actingAs($user)->get(route('sources.index'))
+            ->assertOk()->assertSee($global->title)->assertSee($own->title)->assertDontSee($foreign->title);
+        $this->actingAs($user)->get(route('sources.show', $global))->assertOk();
+        $this->actingAs($user)->get(route('sources.show', $own))->assertOk();
+        $this->actingAs($user)->get(route('sources.show', $foreign))->assertForbidden();
     }
 
-    public function test_admin_can_manage_global_sources_and_versions(): void
+    public function test_regular_user_can_manage_only_own_personal_source_and_versions(): void
+    {
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $global = $this->source('Глобальный НПА');
+        $own = $this->source('Мой НПА', $user);
+        $foreign = $this->source('Чужой НПА', $other);
+        $ownVersion = $this->version($own);
+
+        $this->actingAs($user)->get(route('sources.create'))->assertOk();
+        $this->actingAs($user)->post(route('sources.store'), $this->sourcePayload())->assertRedirect();
+        $created = Source::where('title', 'Новый нормативный акт')->sole();
+        $this->assertSame($user->id, $created->user_id);
+
+        $this->actingAs($user)->get(route('source-versions.create', $own))->assertOk();
+        $this->actingAs($user)->post(route('source-versions.store', $own), $this->versionPayload())->assertRedirect();
+        $this->actingAs($user)->put(route('source-versions.update', [$own, $ownVersion]), $this->versionPayload('Обновлённая редакция'))->assertRedirect();
+
+        foreach ([$global, $foreign] as $forbidden) {
+            $this->actingAs($user)->get(route('source-versions.create', $forbidden))->assertForbidden();
+            $this->actingAs($user)->post(route('source-versions.store', $forbidden), $this->versionPayload())->assertForbidden();
+        }
+    }
+
+    public function test_admin_manages_global_but_not_foreign_personal_source(): void
     {
         $admin = User::factory()->admin()->create();
-        [$source, $version] = $this->sourceFixture();
+        $owner = User::factory()->create();
+        $global = $this->source('Глобальный НПА');
+        $foreign = $this->source('Личный НПА пользователя', $owner);
 
-        $this->actingAs($admin)
-            ->get(route('sources.index'))
-            ->assertOk()
-            ->assertSee(route('sources.create'));
-
-        $this->actingAs($admin)->get(route('sources.create'))->assertOk();
-
-        $this->actingAs($admin)
-            ->post(route('sources.store'), $this->sourcePayload())
-            ->assertRedirect();
-
-        $this->actingAs($admin)->get(route('source-versions.create', $source))->assertOk();
-
-        $this->actingAs($admin)
-            ->post(route('source-versions.store', $source), $this->versionPayload())
-            ->assertRedirect(route('sources.show', $source));
-
-        $this->actingAs($admin)
-            ->get(route('source-versions.edit', [$source, $version]))
-            ->assertOk();
-
-        $this->actingAs($admin)
-            ->put(route('source-versions.update', [$source, $version]), $this->versionPayload('Обновлённая редакция'))
-            ->assertRedirect(route('sources.show', $source));
-
-        $this->assertDatabaseCount('sources', 2);
-        $this->assertDatabaseCount('source_versions', 2);
-        $this->assertDatabaseHas('source_versions', [
-            'id' => $version->id,
-            'text' => 'Обновлённая редакция',
-        ]);
+        $this->actingAs($admin)->post(route('sources.store'), $this->sourcePayload())->assertRedirect();
+        $this->assertNull(Source::where('title', 'Новый нормативный акт')->sole()->user_id);
+        $this->actingAs($admin)->get(route('source-versions.create', $global))->assertOk();
+        $this->actingAs($admin)->get(route('sources.show', $foreign))->assertForbidden();
+        $this->actingAs($admin)->get(route('source-versions.create', $foreign))->assertForbidden();
     }
 
-    private function sourceFixture(): array
+    public function test_foreign_personal_source_cannot_be_attached_to_workspace(): void
     {
-        $source = Source::create([
-            'title' => 'Закон Республики Казахстан',
-            'type' => 'law',
-            'status' => 'active',
-        ]);
-        $text = 'Действующая редакция закона';
-        $version = SourceVersion::create([
-            'source_id' => $source->id,
-            'version_name' => 'Действующая редакция',
-            'text' => $text,
-            'hash' => hash('sha256', $text),
-        ]);
+        $user = User::factory()->create();
+        $other = User::factory()->create();
+        $workspace = $this->workspace($user);
+        $foreign = $this->source('Чужой НПА', $other);
 
-        return [$source, $version];
+        $this->actingAs($user)->post(route('workspaces.sources.attach', [$workspace, $foreign]))->assertForbidden();
+        $this->assertDatabaseMissing('workspace_sources', ['workspace_id' => $workspace->id, 'source_id' => $foreign->id]);
+    }
+
+    public function test_soft_deleting_personal_source_preserves_versions(): void
+    {
+        $user = User::factory()->create();
+        $workspace = $this->workspace($user);
+        $source = $this->source('Удаляемый личный НПА', $user);
+        $version = $this->version($source);
+        $workspace->sources()->attach($source);
+
+        $this->actingAs($user)->delete(route('sources.destroy', $source))->assertRedirect(route('sources.index'));
+        $this->assertSoftDeleted('sources', ['id' => $source->id]);
+        $this->assertDatabaseHas('source_versions', ['id' => $version->id]);
+        $this->assertDatabaseMissing('workspace_sources', ['source_id' => $source->id]);
+        $this->assertSame($source->id, $version->fresh()->source->id);
+    }
+
+    private function source(string $title, ?User $owner = null): Source
+    {
+        $source = Source::create(['title' => $title, 'type' => 'law', 'status' => 'active']);
+        if ($owner) {
+            $source->user()->associate($owner);
+            $source->save();
+        }
+        return $source;
+    }
+
+    private function version(Source $source): SourceVersion
+    {
+        $text = 'Действующая редакция '.$source->title;
+        return SourceVersion::create(['source_id' => $source->id, 'version_name' => 'Действующая редакция', 'text' => $text, 'hash' => hash('sha256', $text)]);
+    }
+
+    private function workspace(User $user): Workspace
+    {
+        return Workspace::create(['user_id' => $user->id, 'reference_number' => 'WS-'.uniqid(), 'title' => 'Рабочее дело', 'category' => 'other', 'status' => 'draft']);
     }
 
     private function sourcePayload(): array
     {
-        return [
-            'title' => 'Новый нормативный акт',
-            'type' => 'law',
-            'input_method' => 'url',
-            'official_url' => 'https://adilet.zan.kz/rus/docs/Z000000001',
-        ];
+        return ['title' => 'Новый нормативный акт', 'type' => 'law', 'input_method' => 'url', 'official_url' => 'https://adilet.zan.kz/rus/docs/Z000000001'];
     }
 
     private function versionPayload(string $text = 'Дополнительная редакция'): array
     {
-        return [
-            'version_name' => 'Новая редакция',
-            'text' => $text,
-        ];
+        return ['version_name' => 'Новая редакция', 'text' => $text];
     }
 }

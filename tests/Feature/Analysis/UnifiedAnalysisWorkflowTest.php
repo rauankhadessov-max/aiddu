@@ -131,6 +131,28 @@ class UnifiedAnalysisWorkflowTest extends TestCase
         $this->assertDatabaseCount('analysis_source_versions', 0);
     }
 
+    public function test_foreign_personal_source_version_is_rejected_even_if_pivot_is_injected(): void
+    {
+        [$owner, $workspace] = $this->fixture();
+        $other = User::factory()->create();
+        [$foreignSource, $foreignVersion] = $this->sourceVersion('Чужой личный источник');
+        $foreignSource->user()->associate($other);
+        $foreignSource->save();
+        $workspace->sources()->attach($foreignSource);
+
+        $this->actingAs($owner)->from(route('analyses.workflow.create'))->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $workspace->id,
+            'title' => 'Недопустимый анализ',
+            'analysis_instruction' => 'Проверить',
+            'source_versions' => [$foreignVersion->id],
+        ])->assertRedirect(route('analyses.workflow.create'))->assertSessionHasErrors('source_versions');
+
+        $this->assertDatabaseCount('analyses', 0);
+        $this->assertDatabaseCount('documents', 0);
+        $this->assertDatabaseCount('analysis_source_versions', 0);
+    }
+
     private function fixture(): array
     {
         $owner = User::factory()->create();

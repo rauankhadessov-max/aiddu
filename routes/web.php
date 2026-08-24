@@ -57,6 +57,9 @@ Route::post('/sources', [SourceController::class, 'store'])
 Route::get('/sources/{source}', [SourceController::class, 'show'])
     ->name('sources.show');
 
+Route::delete('/sources/{source}', [SourceController::class, 'destroy'])
+    ->name('sources.destroy');
+
 Route::get('/sources/{source}/versions/create', [SourceController::class, 'createVersion'])
     ->name('source-versions.create');
 

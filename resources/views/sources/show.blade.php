@@ -59,6 +59,16 @@
             </div>
         </section>
 
-        <a href="{{ route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
+        <div class="flex flex-wrap items-center justify-between gap-4">
+            <a href="{{ route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
+
+            @can('delete', $source)
+                <form method="POST" action="{{ route('sources.destroy', $source) }}" onsubmit="return confirm('Удалить НПА из доступной нормативной базы? Исторические анализы сохранятся.');">
+                    @csrf
+                    @method('DELETE')
+                    <button type="submit" class="rounded-xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 hover:bg-red-50">Удалить НПА</button>
+                </form>
+            @endcan
+        </div>
     </div>
 </x-layouts.app>

@@ -63,7 +63,8 @@ public function sources(Workspace $workspace)
 {
     Gate::authorize('view', $workspace);
 
-    $sources = \App\Models\Source::with('versions')
+    $sources = \App\Models\Source::visibleTo(request()->user())
+        ->with('versions')
         ->latest()
         ->get();
 
@@ -75,6 +76,7 @@ public function sources(Workspace $workspace)
 public function attachSource(Workspace $workspace, \App\Models\Source $source)
 {
     Gate::authorize('update', $workspace);
+    Gate::authorize('view', $source);
 
     $workspace->sources()->syncWithoutDetaching([$source->id]);
 

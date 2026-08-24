@@ -27,7 +27,7 @@ class AnalysisController extends Controller
 
         $document->load('workspace');
 
-        $sourceVersions = $this->sourceVersionsAvailableFor($document)
+        $sourceVersions = $this->sourceVersionsAvailableFor($document, $request)
             ->with('source')
             ->orderByDesc('source_versions.effective_date')
             ->orderBy('source_versions.id')
@@ -59,7 +59,7 @@ class AnalysisController extends Controller
             ->map(fn ($id) => (int) $id)
             ->values();
 
-        $allowedSourceVersionIds = $this->sourceVersionsAvailableFor($document)
+        $allowedSourceVersionIds = $this->sourceVersionsAvailableFor($document, $request)
             ->whereIn('source_versions.id', $selectedSourceVersionIds)
             ->pluck('source_versions.id')
             ->map(fn ($id) => (int) $id)
@@ -184,13 +184,18 @@ public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDel
     }
 }
 
-private function sourceVersionsAvailableFor(Document $document)
+private function sourceVersionsAvailableFor(Document $document, Request $request)
 {
     return SourceVersion::query()
         ->select('source_versions.*')
         ->join('sources', 'sources.id', '=', 'source_versions.source_id')
         ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
-        ->where('workspace_sources.workspace_id', $document->workspace_id);
+        ->where('workspace_sources.workspace_id', $document->workspace_id)
+        ->whereNull('sources.deleted_at')
+        ->where(function ($query) use ($request) {
+            $query->whereNull('sources.user_id')
+                ->orWhere('sources.user_id', $request->user()->id);
+        });
 }
 
 

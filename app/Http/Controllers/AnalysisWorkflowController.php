@@ -93,9 +93,12 @@ class AnalysisWorkflowController extends Controller
     private function workspacesFor(Request $request)
     {
         return $request->user()->workspaces()
-            ->with(['sources.versions' => fn ($query) => $query
-                ->orderByDesc('effective_date')
-                ->orderBy('id')])
+            ->with([
+                'sources' => fn ($query) => $query->visibleTo($request->user()),
+                'sources.versions' => fn ($query) => $query
+                    ->orderByDesc('effective_date')
+                    ->orderBy('id'),
+            ])
             ->latest()
             ->get();
     }

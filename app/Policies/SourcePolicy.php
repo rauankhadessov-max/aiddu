@@ -14,16 +14,23 @@ class SourcePolicy
 
     public function view(User $user, Source $source): bool
     {
-        return true;
+        return $source->isGlobal() || $source->isOwnedBy($user);
     }
 
     public function create(User $user): bool
     {
-        return (bool) $user->is_admin;
+        return true;
     }
 
     public function update(User $user, Source $source): bool
     {
-        return (bool) $user->is_admin;
+        return $source->isGlobal()
+            ? (bool) $user->is_admin
+            : $source->isOwnedBy($user);
+    }
+
+    public function delete(User $user, Source $source): bool
+    {
+        return $this->update($user, $source);
     }
 }

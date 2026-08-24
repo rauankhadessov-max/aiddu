@@ -13,7 +13,8 @@ class SourceController extends Controller
 {
     public function index()
     {
-        $sources = Source::withCount('versions')
+        $sources = Source::visibleTo(request()->user())
+            ->withCount('versions')
             ->latest()
             ->get();
 
@@ -67,6 +68,11 @@ class SourceController extends Controller
                     : null,
             ]);
 
+            if (!$request->user()->is_admin) {
+                $source->user()->associate($request->user());
+                $source->save();
+            }
+
             if ($validated['input_method'] === 'docx') {
                 $contentService->create(
                     $source,
@@ -92,6 +98,8 @@ class SourceController extends Controller
 
     public function show(Source $source)
     {
+        Gate::authorize('view', $source);
+
         $source->load([
             'versions' => fn ($query) => $query->latest('effective_date'),
         ]);
@@ -104,6 +112,20 @@ class SourceController extends Controller
         Gate::authorize('update', $source);
 
         return view('sources.versions.create', compact('source'));
+    }
+
+    public function destroy(Source $source)
+    {
+        Gate::authorize('delete', $source);
+
+        DB::transaction(function () use ($source) {
+            $source->workspaces()->detach();
+            $source->delete();
+        });
+
+        return redirect()
+            ->route('sources.index')
+            ->with('success', 'НПА удалён из доступной нормативной базы. Исторические анализы сохранены.');
     }
 
     public function storeVersion(

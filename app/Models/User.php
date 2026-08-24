@@ -35,4 +35,9 @@ public function workspaces(): HasMany
 {
     return $this->hasMany(Workspace::class);
 }
+
+public function sources(): HasMany
+{
+    return $this->hasMany(Source::class);
+}
 }

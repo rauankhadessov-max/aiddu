@@ -24,6 +24,6 @@ class SourceVersion extends Model
 
     public function source(): BelongsTo
     {
-        return $this->belongsTo(Source::class);
+        return $this->belongsTo(Source::class)->withTrashed();
     }
 }

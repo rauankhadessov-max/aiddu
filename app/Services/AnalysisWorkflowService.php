@@ -27,7 +27,7 @@ class AnalysisWorkflowService
             ->unique()
             ->values();
 
-        $this->ensureSourceVersionsBelongToWorkspace($workspace, $sourceVersionIds->all());
+        $this->ensureSourceVersionsBelongToWorkspace($user, $workspace, $sourceVersionIds->all());
 
         return DB::transaction(function () use ($user, $workspace, $data, $analysis, $sourceVersionIds) {
             if ($analysis && $analysis->status !== 'draft') {
@@ -90,7 +90,7 @@ class AnalysisWorkflowService
         });
     }
 
-    private function ensureSourceVersionsBelongToWorkspace(Workspace $workspace, array $sourceVersionIds): void
+    private function ensureSourceVersionsBelongToWorkspace(User $user, Workspace $workspace, array $sourceVersionIds): void
     {
         if ($sourceVersionIds === []) {
             return;
@@ -100,6 +100,11 @@ class AnalysisWorkflowService
             ->join('sources', 'sources.id', '=', 'source_versions.source_id')
             ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
             ->where('workspace_sources.workspace_id', $workspace->id)
+            ->whereNull('sources.deleted_at')
+            ->where(function ($query) use ($user) {
+                $query->whereNull('sources.user_id')
+                    ->orWhere('sources.user_id', $user->id);
+            })
             ->whereIn('source_versions.id', $sourceVersionIds)
             ->distinct()
             ->count('source_versions.id');

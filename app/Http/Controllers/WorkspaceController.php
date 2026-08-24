@@ -13,6 +13,7 @@ class WorkspaceController extends Controller
     {
         $workspaces = $request->user()
             ->workspaces()
+            ->with('regulatoryProfile')
             ->latest()
             ->get();
 

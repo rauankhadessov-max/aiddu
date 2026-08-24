@@ -65,12 +65,12 @@ class UnifiedAnalysisWorkflowTest extends TestCase
             'current_text' => 'Действующая редакция',
             'proposed_text' => 'Предлагаемая редакция',
             'analysis_instruction' => 'Проверить поправку',
-            'source_versions' => [$version->id],
         ])->assertRedirect();
 
         $analysis = Analysis::sole();
         $this->assertSame($workspace->id, $analysis->workspace_id);
         $this->assertSame('amendment_review', $analysis->analysis_type);
+        $this->assertSame([$version->id], $analysis->sourceVersions->pluck('id')->all());
         Http::assertNothingSent();
     }
 
@@ -86,12 +86,115 @@ class UnifiedAnalysisWorkflowTest extends TestCase
             'action' => 'run',
             'title' => 'Scenario B без выбора рабочего дела',
             'analysis_instruction' => 'Разработать необходимые поправки',
-            'source_versions' => [$version->id],
         ])->assertRedirect();
 
         $analysis = Analysis::sole();
         $this->assertSame($workspace->id, $analysis->workspace_id);
         $this->assertSame('amendment_drafting', $analysis->analysis_type);
+        $this->assertSame([$version->id], $analysis->sourceVersions->pluck('id')->all());
+        Http::assertNothingSent();
+    }
+
+    public function test_automatic_selection_uses_current_version_per_eligible_source(): void
+    {
+        Http::fake();
+        [$owner, $workspace, $undatedVersion] = $this->fixture();
+        $newerUndated = SourceVersion::create([
+            'source_id' => $undatedVersion->source_id,
+            'version_name' => 'Новая редакция без даты',
+            'text' => 'Новый текст без даты',
+            'hash' => hash('sha256', 'newer-undated'),
+        ]);
+
+        [$datedSource, $oldVersion] = $this->sourceVersion('Источник с датами');
+        $oldVersion->update(['effective_date' => now()->subYear()->toDateString()]);
+        $currentVersion = SourceVersion::create([
+            'source_id' => $datedSource->id,
+            'version_name' => 'Текущая редакция',
+            'effective_date' => now()->subDay()->toDateString(),
+            'text' => 'Текущая норма',
+            'hash' => hash('sha256', 'current-version'),
+        ]);
+        $futureVersion = SourceVersion::create([
+            'source_id' => $datedSource->id,
+            'version_name' => 'Будущая редакция',
+            'effective_date' => now()->addYear()->toDateString(),
+            'text' => 'Будущая норма',
+            'hash' => hash('sha256', 'future-version'),
+        ]);
+        $workspace->sources()->attach($datedSource);
+
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $workspace->id,
+            'title' => 'Автоматическая нормативная база',
+            'analysis_instruction' => 'Проверить нормы',
+        ])->assertRedirect();
+
+        $selected = Analysis::sole()->sourceVersions->pluck('id')->sort()->values()->all();
+
+        $this->assertSame(collect([$newerUndated->id, $currentVersion->id])->sort()->values()->all(), $selected);
+        $this->assertNotContains($undatedVersion->id, $selected);
+        $this->assertNotContains($oldVersion->id, $selected);
+        $this->assertNotContains($futureVersion->id, $selected);
+        Http::assertNothingSent();
+    }
+
+    public function test_explicit_selection_limits_versions_even_when_a_newer_version_exists(): void
+    {
+        Http::fake();
+        [$owner, $workspace, $selectedVersion] = $this->fixture();
+        $newerVersion = SourceVersion::create([
+            'source_id' => $selectedVersion->source_id,
+            'version_name' => 'Новая доступная редакция',
+            'effective_date' => now()->subDay()->toDateString(),
+            'text' => 'Новая доступная норма',
+            'hash' => hash('sha256', 'newer-explicit-version'),
+        ]);
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $workspace->id,
+            'title' => 'Явное ограничение базы',
+            'analysis_instruction' => 'Проверить выбранную редакцию',
+            'source_versions' => [$selectedVersion->id],
+        ])->assertRedirect();
+
+        $this->assertSame([$selectedVersion->id], Analysis::sole()->sourceVersions->pluck('id')->all());
+        $this->assertDatabaseMissing('analysis_source_versions', [
+            'analysis_id' => Analysis::sole()->id,
+            'source_version_id' => $newerVersion->id,
+        ]);
+        Http::assertNothingSent();
+    }
+
+    public function test_run_without_selection_fails_when_workspace_has_no_usable_versions(): void
+    {
+        Http::fake();
+        $owner = User::factory()->create();
+        $workspace = $this->workspace($owner, 'Пустая нормативная база');
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock->shouldNotReceive('execute'));
+
+        $this->actingAs($owner)
+            ->from(route('analyses.workflow.create'))
+            ->post(route('analyses.workflow.store'), [
+                'action' => 'run',
+                'workspace_id' => $workspace->id,
+                'title' => 'Анализ без нормативного текста',
+                'analysis_instruction' => 'Проверить',
+            ])
+            ->assertRedirect(route('analyses.workflow.create'))
+            ->assertSessionHasErrors([
+                'source_versions' => 'В выбранном рабочем деле нет редакций НПА, доступных для анализа. Добавьте нормативный текст или подключите источник.',
+            ]);
+
+        $this->assertDatabaseCount('analyses', 0);
+        $this->assertDatabaseCount('documents', 0);
         Http::assertNothingSent();
     }
 

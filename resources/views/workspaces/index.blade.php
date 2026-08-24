@@ -64,9 +64,11 @@
                                 @endif
                             </div>
 
-                            <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold text-slate-600">
-                                {{ $workspace->status }}
-                            </span>
+                            @if ($workspace->regulatoryProfile?->is_active && $workspace->regulatoryProfile->purpose === App\Models\RegulatoryProfile::NEW_USER_DEFAULT)
+                                <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">
+                                    По умолчанию
+                                </span>
+                            @endif
                         </div>
                     </a>
                 @endforeach

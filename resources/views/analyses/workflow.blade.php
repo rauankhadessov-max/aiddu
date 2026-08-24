@@ -91,6 +91,7 @@
                 <section class="rounded-2xl border border-slate-200 bg-white p-6">
                     <h2 class="text-lg font-bold text-slate-900">Нормативная база</h2>
                     <p class="mt-1 text-sm text-slate-500">Показываются только источники, подключённые к выбранному рабочему делу.</p>
+                    <p class="mt-2 text-sm text-blue-700">Если источники не выбраны вручную, анализ будет проведён по всей нормативной базе, подключённой к рабочему делу.</p>
 
                     <div class="mt-5">
                         @foreach ($workspaces as $workspace)

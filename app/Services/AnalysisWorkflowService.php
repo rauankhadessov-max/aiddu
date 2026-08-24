@@ -4,8 +4,6 @@ namespace App\Services;
 
 use App\Models\Analysis;
 use App\Models\Document;
-use App\Models\SourceVersion;
-use App\Models\Source;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\DB;
@@ -13,6 +11,11 @@ use Illuminate\Validation\ValidationException;
 
 class AnalysisWorkflowService
 {
+    public function __construct(
+        private readonly WorkspaceSourceVersionResolver $sourceVersionResolver,
+    ) {
+    }
+
     public function save(User $user, array $data, ?Analysis $analysis = null): Analysis
     {
         $workspace = $user->workspaces()->find($data['workspace_id']);
@@ -23,12 +26,9 @@ class AnalysisWorkflowService
             ]);
         }
 
-        $sourceVersionIds = collect($data['source_versions'] ?? [])
-            ->map(fn ($id) => (int) $id)
-            ->unique()
-            ->values();
-
-        $this->ensureSourceVersionsBelongToWorkspace($user, $workspace, $sourceVersionIds->all());
+        $sourceVersionIds = $data['action'] === 'run'
+            ? $this->sourceVersionResolver->resolveForRun($user, $workspace, $data['source_versions'] ?? [])
+            : $this->sourceVersionResolver->validateExplicitSelection($user, $workspace, $data['source_versions'] ?? []);
 
         return DB::transaction(function () use ($user, $workspace, $data, $analysis, $sourceVersionIds) {
             if ($analysis && $analysis->status !== 'draft') {
@@ -91,33 +91,4 @@ class AnalysisWorkflowService
         });
     }
 
-    private function ensureSourceVersionsBelongToWorkspace(User $user, Workspace $workspace, array $sourceVersionIds): void
-    {
-        if ($sourceVersionIds === []) {
-            return;
-        }
-
-        $query = SourceVersion::query()
-            ->join('sources', 'sources.id', '=', 'source_versions.source_id')
-            ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
-            ->where('workspace_sources.workspace_id', $workspace->id)
-            ->whereIn('source_versions.id', $sourceVersionIds)
-            ->distinct();
-
-        if (Source::supportsOwnership()) {
-            $query->whereNull('sources.deleted_at')
-                ->where(function ($query) use ($user) {
-                    $query->whereNull('sources.user_id')
-                        ->orWhere('sources.user_id', $user->id);
-                });
-        }
-
-        $allowedCount = $query->count('source_versions.id');
-
-        if ($allowedCount !== count($sourceVersionIds)) {
-            throw ValidationException::withMessages([
-                'source_versions' => 'Можно использовать только редакции источников, подключённых к выбранному рабочему делу.',
-            ]);
-        }
-    }
 }

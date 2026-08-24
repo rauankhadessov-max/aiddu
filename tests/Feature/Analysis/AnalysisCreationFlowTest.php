@@ -61,7 +61,7 @@ class AnalysisCreationFlowTest extends TestCase
         $this->assertDatabaseCount('analysis_source_versions', 2);
     }
 
-    public function test_analysis_requires_at_least_one_source_version_without_partial_writes(): void
+    public function test_analysis_requires_an_available_source_version_without_partial_writes(): void
     {
         $owner = User::factory()->create();
         $workspace = $this->workspaceFor($owner, 'WS-NONE');

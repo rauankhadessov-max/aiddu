@@ -41,7 +41,7 @@ class AnalysisWorkflowRequest extends FormRequest
             'current_text' => ['nullable', 'string'],
             'proposed_text' => ['nullable', 'string'],
             'analysis_instruction' => [$isRun ? 'required' : 'nullable', 'string'],
-            'source_versions' => [$isRun ? 'required' : 'nullable', 'array', $isRun ? 'min:1' : 'max:100'],
+            'source_versions' => ['nullable', 'array', 'max:100'],
             'source_versions.*' => ['required', 'integer', 'distinct', 'exists:source_versions,id'],
         ];
     }
@@ -52,8 +52,6 @@ class AnalysisWorkflowRequest extends FormRequest
             'workspace_id.required' => 'Выберите рабочее дело.',
             'title.required' => 'Укажите название анализа.',
             'analysis_instruction.required' => 'Укажите поручение ИИ перед запуском анализа.',
-            'source_versions.required' => 'Выберите хотя бы одну редакцию нормативного источника.',
-            'source_versions.min' => 'Выберите хотя бы одну редакцию нормативного источника.',
             'source_versions.*.exists' => 'Выбрана недоступная редакция нормативного источника.',
         ];
     }

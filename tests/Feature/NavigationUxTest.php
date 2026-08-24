@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\Analysis;
 use App\Models\Document;
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
@@ -99,6 +100,23 @@ class NavigationUxTest extends TestCase
             ->assertSee(route('workspaces.sources', $workspace), false);
     }
 
+    public function test_workspace_cards_hide_machine_status_and_mark_only_active_default_profile(): void
+    {
+        $owner = User::factory()->create();
+        $defaultWorkspace = $this->workspaceFor($owner);
+        $defaultProfile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $defaultWorkspace->update(['regulatory_profile_id' => $defaultProfile->id]);
+        $this->workspaceFor($owner)->update(['title' => 'Обычное рабочее дело']);
+
+        $response = $this->actingAs($owner)->get(route('workspaces.index'));
+
+        $response->assertOk()
+            ->assertDontSee('draft')
+            ->assertSee('По умолчанию')
+            ->assertSee('Обычное рабочее дело');
+        $this->assertSame(1, substr_count($response->getContent(), 'По умолчанию'));
+    }
+
     public function test_document_page_lists_instruction_and_existing_analyses(): void
     {
         $owner = User::factory()->create();
@@ -143,7 +161,7 @@ class NavigationUxTest extends TestCase
             ->followingRedirects()
             ->post(route('analyses.store', $document), [])
             ->assertOk()
-            ->assertSee('Выберите хотя бы одну редакцию нормативного источника.');
+            ->assertSee('В выбранном рабочем деле нет редакций НПА, доступных для анализа.');
     }
 
     public function test_welcome_actions_are_working_and_capabilities_anchor_remains(): void
@@ -182,7 +200,7 @@ class NavigationUxTest extends TestCase
     {
         return Workspace::create([
             'user_id' => $user->id,
-            'reference_number' => 'WS-'.$user->id,
+            'reference_number' => 'WS-'.$user->id.'-'.uniqid(),
             'title' => 'Рабочее дело',
             'category' => 'other',
             'status' => 'draft',

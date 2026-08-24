@@ -4,11 +4,11 @@ namespace App\Http\Controllers;
 
 use App\Models\Analysis;
 use App\Models\Document;
-use App\Models\SourceVersion;
-use App\Models\Source;
+use App\Presenters\AnalysisResultPresenter;
 use Illuminate\Http\Request;
 use App\Services\AnalysisExecutionService;
 use App\Services\AnalysisDeletionService;
+use App\Services\WorkspaceSourceVersionResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -16,7 +16,11 @@ use Throwable;
 
 class AnalysisController extends Controller
 {
-    public function create(Request $request, Document $document)
+    public function create(
+        Request $request,
+        Document $document,
+        WorkspaceSourceVersionResolver $sourceVersionResolver,
+    )
     {
         Gate::authorize('createAnalysis', $document);
 
@@ -28,7 +32,8 @@ class AnalysisController extends Controller
 
         $document->load('workspace');
 
-        $sourceVersions = $this->sourceVersionsAvailableFor($document, $request)
+        $sourceVersions = $sourceVersionResolver
+            ->eligibleQuery($request->user(), $document->workspace)
             ->with('source')
             ->orderByDesc('source_versions.effective_date')
             ->orderBy('source_versions.id')
@@ -37,7 +42,11 @@ class AnalysisController extends Controller
         return view('analyses.create', compact('document', 'sourceVersions'));
     }
 
-    public function store(Request $request, Document $document)
+    public function store(
+        Request $request,
+        Document $document,
+        WorkspaceSourceVersionResolver $sourceVersionResolver,
+    )
     {
         Gate::authorize('createAnalysis', $document);
 
@@ -48,29 +57,17 @@ class AnalysisController extends Controller
         }
 
         $validated = $request->validate([
-            'source_versions' => ['required', 'array', 'min:1'],
+            'source_versions' => ['nullable', 'array', 'max:100'],
             'source_versions.*' => ['required', 'integer', 'distinct', 'exists:source_versions,id'],
         ], [
-            'source_versions.required' => 'Выберите хотя бы одну редакцию нормативного источника.',
-            'source_versions.min' => 'Выберите хотя бы одну редакцию нормативного источника.',
             'source_versions.*.exists' => 'Выбрана недоступная редакция нормативного источника.',
         ]);
 
-        $selectedSourceVersionIds = collect($validated['source_versions'])
-            ->map(fn ($id) => (int) $id)
-            ->values();
-
-        $allowedSourceVersionIds = $this->sourceVersionsAvailableFor($document, $request)
-            ->whereIn('source_versions.id', $selectedSourceVersionIds)
-            ->pluck('source_versions.id')
-            ->map(fn ($id) => (int) $id)
-            ->values();
-
-        if ($allowedSourceVersionIds->count() !== $selectedSourceVersionIds->count()) {
-            throw ValidationException::withMessages([
-                'source_versions' => 'Можно использовать только редакции источников, подключённых к текущему рабочему делу.',
-            ]);
-        }
+        $selectedSourceVersionIds = $sourceVersionResolver->resolveForRun(
+            $request->user(),
+            $document->workspace,
+            $validated['source_versions'] ?? [],
+        );
 
         $analysis = DB::transaction(function () use ($document, $request, $selectedSourceVersionIds) {
             $analysis = Analysis::create([
@@ -102,7 +99,7 @@ class AnalysisController extends Controller
             ->with('success', 'Анализ создан.');
     }
 
-    public function show(Request $request, Analysis $analysis)
+    public function show(Request $request, Analysis $analysis, AnalysisResultPresenter $resultPresenter)
     {
         Gate::authorize('view', $analysis);
 
@@ -115,7 +112,7 @@ class AnalysisController extends Controller
             'draftPackage.canonicalArtifacts',
         ]);
 
-        return view('analyses.show', compact('analysis'));
+        return view('analyses.show', compact('analysis', 'resultPresenter'));
     }
 
 public function run(
@@ -184,26 +181,5 @@ public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDel
         return back()->with('error', 'Не удалось безопасно удалить анализ. Попробуйте позже.');
     }
 }
-
-private function sourceVersionsAvailableFor(Document $document, Request $request)
-{
-    $query = SourceVersion::query()
-        ->select('source_versions.*')
-        ->join('sources', 'sources.id', '=', 'source_versions.source_id')
-        ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
-        ->where('workspace_sources.workspace_id', $document->workspace_id);
-
-    if (Source::supportsOwnership()) {
-        $query->whereNull('sources.deleted_at')
-            ->where(function ($query) use ($request) {
-                $query->whereNull('sources.user_id')
-                    ->orWhere('sources.user_id', $request->user()->id);
-            });
-    }
-
-    return $query;
-}
-
-
 
 }

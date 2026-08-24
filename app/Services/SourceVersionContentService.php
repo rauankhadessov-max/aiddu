@@ -65,6 +65,8 @@ class SourceVersionContentService
                 throw ValidationException::withMessages([
                     'docx_file' => 'Не удалось извлечь нормативный текст из DOCX-файла.',
                 ]);
+            } finally {
+                Storage::disk('local')->delete($storedPath);
             }
         }
 

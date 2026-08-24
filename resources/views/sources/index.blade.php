@@ -38,7 +38,7 @@
                     <div class="flex items-start justify-between gap-6">
                         <div>
                             <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                                {{ $source->typeLabel() }}
+                                {{ $source->typeLabel() }} · {{ $source->isGlobal() ? 'Глобальный НПА' : 'Мой НПА' }}
                             </div>
 
                             <h2 class="mt-2 text-lg font-bold text-slate-900">{{ $source->title }}</h2>

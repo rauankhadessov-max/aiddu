@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Http\Requests\StoreSourceRequest;
 use App\Models\Source;
+use App\Services\SourceCreationService;
 use App\Services\SourceVersionContentService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
-use Illuminate\Validation\Rule;
 
 class SourceController extends Controller
 {
@@ -28,63 +29,14 @@ class SourceController extends Controller
         return view('sources.create');
     }
 
-    public function store(Request $request, SourceVersionContentService $contentService)
+    public function store(StoreSourceRequest $request, SourceCreationService $creationService)
     {
         Gate::authorize('create', Source::class);
 
-        $validated = $request->validate([
-            'title' => ['required', 'string', 'max:255'],
-            'type' => ['required', Rule::in([
-                'law',
-                'code',
-                'government_resolution',
-                'order',
-                'rules',
-                'methodology',
-                'other',
-            ])],
-            'input_method' => ['required', Rule::in(['docx', 'url'])],
-            'docx_file' => ['nullable', 'required_if:input_method,docx', 'file', 'mimes:docx', 'max:2048'],
-            'official_url' => ['nullable', 'required_if:input_method,url', 'url', 'max:1000'],
-        ], [
-            'title.required' => 'Укажите название НПА.',
-            'type.required' => 'Выберите вид НПА.',
-            'type.in' => 'Выбран недопустимый вид НПА.',
-            'input_method.required' => 'Выберите источник нормативного текста.',
-            'docx_file.required_if' => 'Выберите DOCX-файл нормативного акта.',
-            'docx_file.mimes' => 'Можно загрузить только файл в формате DOCX.',
-            'docx_file.max' => 'Размер DOCX-файла не должен превышать 2 МБ.',
-            'official_url.required_if' => 'Укажите официальную ссылку на НПА.',
-            'official_url.url' => 'Укажите корректную официальную ссылку.',
-        ]);
-
-        $source = DB::transaction(function () use ($request, $validated, $contentService) {
-            $source = Source::create([
-                'title' => $validated['title'],
-                'type' => $validated['type'],
-                'status' => 'active',
-                'official_url' => $validated['input_method'] === 'url'
-                    ? $validated['official_url']
-                    : null,
-            ]);
-
-            if (!$request->user()->is_admin) {
-                $source->user()->associate($request->user());
-                $source->save();
-            }
-
-            if ($validated['input_method'] === 'docx') {
-                $contentService->create(
-                    $source,
-                    'Редакция из загруженного DOCX',
-                    null,
-                    null,
-                    $request->file('docx_file'),
-                );
-            }
-
-            return $source;
-        });
+        $validated = $request->validated();
+        $source = $request->user()->is_admin
+            ? $creationService->createGlobal($validated, $request->file('docx_file'))
+            : $creationService->createPersonal($request->user(), $validated, $request->file('docx_file'));
 
         return redirect()
             ->route('sources.show', $source)

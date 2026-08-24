@@ -100,6 +100,7 @@ class SourceUxTest extends TestCase
         $this->assertSame($source->id, $version->source_id);
         $this->assertSame($expected, $version->text);
         $this->assertSame(hash('sha256', $expected), $version->hash);
+        $this->assertSame([], Storage::disk('local')->allFiles('source_versions'));
 
         $workspace = Workspace::create([
             'user_id' => $admin->id,
@@ -137,6 +138,7 @@ class SourceUxTest extends TestCase
 
         $this->assertDatabaseCount('sources', 0);
         $this->assertDatabaseCount('source_versions', 0);
+        $this->assertSame([], Storage::disk('local')->allFiles('source_versions'));
     }
 
     public function test_source_and_version_pages_keep_application_sidebar(): void

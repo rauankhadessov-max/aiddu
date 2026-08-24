@@ -10,6 +10,7 @@ use App\Http\Controllers\ArtifactController;
 use App\Http\Controllers\ArtifactDocxController;
 use App\Http\Controllers\AnalysisWorkflowController;
 use App\Http\Controllers\RegulatoryProfileController;
+use App\Http\Controllers\InlineWorkspaceSourceController;
 
 
 Route::get('/', function () {
@@ -42,6 +43,9 @@ Route::delete('/analyses/{analysis}', [AnalysisController::class, 'destroy'])
 
 Route::get('/workspaces/{workspace}/sources', [WorkspaceController::class, 'sources'])
     ->name('workspaces.sources');
+
+Route::post('/api/workspaces/{workspace}/sources/inline', [InlineWorkspaceSourceController::class, 'store'])
+    ->name('workspaces.sources.inline.store');
 
 Route::post('/workspaces/{workspace}/sources/{source}', [WorkspaceController::class, 'attachSource'])
     ->name('workspaces.sources.attach');

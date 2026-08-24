@@ -11,6 +11,7 @@ class Workspace extends Model
 {
     protected $fillable = [
         'user_id',
+        'regulatory_profile_id',
         'reference_number',
         'title',
         'description',
@@ -29,6 +30,11 @@ class Workspace extends Model
     public function user(): BelongsTo
     {
         return $this->belongsTo(User::class);
+    }
+
+    public function regulatoryProfile(): BelongsTo
+    {
+        return $this->belongsTo(RegulatoryProfile::class);
     }
 
     public function documents(): HasMany

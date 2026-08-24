@@ -9,6 +9,7 @@ use App\Http\Controllers\DraftPackageController;
 use App\Http\Controllers\ArtifactController;
 use App\Http\Controllers\ArtifactDocxController;
 use App\Http\Controllers\AnalysisWorkflowController;
+use App\Http\Controllers\RegulatoryProfileController;
 
 
 Route::get('/', function () {
@@ -53,6 +54,12 @@ Route::get('/sources/create', [SourceController::class, 'create'])
 
 Route::post('/sources', [SourceController::class, 'store'])
     ->name('sources.store');
+
+Route::get('/admin/regulatory-profiles/default', [RegulatoryProfileController::class, 'edit'])
+    ->name('regulatory-profiles.default.edit');
+
+Route::patch('/admin/regulatory-profiles/default', [RegulatoryProfileController::class, 'update'])
+    ->name('regulatory-profiles.default.update');
 
 Route::get('/sources/{source}', [SourceController::class, 'show'])
     ->name('sources.show');

@@ -48,6 +48,13 @@ class Source extends Model
             ->withTimestamps();
     }
 
+    public function regulatoryProfiles(): BelongsToMany
+    {
+        return $this->belongsToMany(RegulatoryProfile::class, 'regulatory_profile_sources')
+            ->withPivot(['sort_order', 'is_primary'])
+            ->withTimestamps();
+    }
+
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
         return $query->where(function (Builder $query) use ($user) {

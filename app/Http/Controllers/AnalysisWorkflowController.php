@@ -7,17 +7,27 @@ use App\Models\Analysis;
 use App\Models\Document;
 use App\Services\AnalysisExecutionService;
 use App\Services\AnalysisWorkflowService;
+use App\Services\DefaultWorkspaceResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Throwable;
 
 class AnalysisWorkflowController extends Controller
 {
-    public function create(Request $request)
+    public function create(Request $request, DefaultWorkspaceResolver $workspaceResolver)
     {
         $workspaces = $this->workspacesFor($request);
         $document = $this->prefillDocument($request);
-        $selectedWorkspaceId = old('workspace_id', $document?->workspace_id ?? $request->integer('workspace'));
+        $explicitWorkspaceId = $document?->workspace_id
+            ?? ($request->filled('workspace') ? $request->integer('workspace') : null);
+
+        if ($request->session()->hasOldInput('workspace_id')) {
+            $oldWorkspaceId = old('workspace_id');
+            $explicitWorkspaceId = filled($oldWorkspaceId) ? (int) $oldWorkspaceId : null;
+        }
+
+        $selectedWorkspaceId = $workspaceResolver
+            ->resolve($request->user(), $explicitWorkspaceId)?->id;
 
         return view('analyses.workflow', compact('workspaces', 'document', 'selectedWorkspaceId'));
     }
@@ -32,7 +42,7 @@ class AnalysisWorkflowController extends Controller
         return $this->finish($request, $analysis, $executionService);
     }
 
-    public function edit(Request $request, Analysis $analysis)
+    public function edit(Request $request, Analysis $analysis, DefaultWorkspaceResolver $workspaceResolver)
     {
         Gate::authorize('view', $analysis);
 
@@ -42,7 +52,11 @@ class AnalysisWorkflowController extends Controller
 
         $analysis->load(['document', 'sourceVersions']);
         $workspaces = $this->workspacesFor($request);
-        $selectedWorkspaceId = old('workspace_id', $analysis->workspace_id);
+        $explicitWorkspaceId = $request->session()->hasOldInput('workspace_id') && filled(old('workspace_id'))
+            ? (int) old('workspace_id')
+            : $analysis->workspace_id;
+        $selectedWorkspaceId = $workspaceResolver
+            ->resolve($request->user(), $explicitWorkspaceId)?->id;
 
         return view('analyses.workflow', compact('workspaces', 'analysis', 'selectedWorkspaceId'));
     }

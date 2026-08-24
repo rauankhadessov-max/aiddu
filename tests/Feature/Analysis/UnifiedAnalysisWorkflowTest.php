@@ -3,6 +3,7 @@
 namespace Tests\Feature\Analysis;
 
 use App\Models\Analysis;
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
@@ -34,6 +35,123 @@ class UnifiedAnalysisWorkflowTest extends TestCase
             ->assertDontSee($foreignVersion->version_name)
             ->assertSee('Сохранить черновик')
             ->assertSee('Запустить анализ');
+    }
+
+    public function test_create_form_selects_active_default_workspace_and_shows_its_sources(): void
+    {
+        [$owner, $workspace, $version] = $this->fixture();
+        $this->makeDefault($workspace);
+
+        $this->actingAs($owner)
+            ->get(route('analyses.workflow.create'))
+            ->assertOk()
+            ->assertSee('<option value="'.$workspace->id.'" selected>', false)
+            ->assertSee($version->version_name)
+            ->assertSee('id="inline-source-toggle" type="button"', false)
+            ->assertDontSee('id="inline-source-toggle" type="button" disabled', false);
+    }
+
+    public function test_scenario_a_without_workspace_id_uses_default_workspace(): void
+    {
+        Http::fake();
+        [$owner, $workspace, $version] = $this->fixture();
+        $this->makeDefault($workspace);
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'title' => 'Scenario A без выбора рабочего дела',
+            'current_text' => 'Действующая редакция',
+            'proposed_text' => 'Предлагаемая редакция',
+            'analysis_instruction' => 'Проверить поправку',
+            'source_versions' => [$version->id],
+        ])->assertRedirect();
+
+        $analysis = Analysis::sole();
+        $this->assertSame($workspace->id, $analysis->workspace_id);
+        $this->assertSame('amendment_review', $analysis->analysis_type);
+        Http::assertNothingSent();
+    }
+
+    public function test_scenario_b_without_workspace_id_uses_default_workspace(): void
+    {
+        Http::fake();
+        [$owner, $workspace, $version] = $this->fixture();
+        $this->makeDefault($workspace);
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'title' => 'Scenario B без выбора рабочего дела',
+            'analysis_instruction' => 'Разработать необходимые поправки',
+            'source_versions' => [$version->id],
+        ])->assertRedirect();
+
+        $analysis = Analysis::sole();
+        $this->assertSame($workspace->id, $analysis->workspace_id);
+        $this->assertSame('amendment_drafting', $analysis->analysis_type);
+        Http::assertNothingSent();
+    }
+
+    public function test_explicit_workspace_has_priority_over_default_workspace(): void
+    {
+        Http::fake();
+        [$owner, $defaultWorkspace] = $this->fixture();
+        $this->makeDefault($defaultWorkspace);
+        $explicitWorkspace = $this->workspace($owner, 'Явно выбранное дело');
+        [$source, $version] = $this->sourceVersion('Источник явного дела');
+        $explicitWorkspace->sources()->attach($source);
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $explicitWorkspace->id,
+            'title' => 'Явно выбранное дело',
+            'analysis_instruction' => 'Разработать поправки',
+            'source_versions' => [$version->id],
+        ])->assertRedirect();
+
+        $this->assertSame($explicitWorkspace->id, Analysis::sole()->workspace_id);
+        Http::assertNothingSent();
+    }
+
+    public function test_missing_workspace_still_fails_when_default_workspace_does_not_exist(): void
+    {
+        [$owner, , $version] = $this->fixture();
+
+        $this->actingAs($owner)->from(route('analyses.workflow.create'))->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'title' => 'Нет рабочего дела по умолчанию',
+            'analysis_instruction' => 'Проверить',
+            'source_versions' => [$version->id],
+        ])->assertRedirect(route('analyses.workflow.create'))->assertSessionHasErrors('workspace_id');
+
+        $this->assertDatabaseCount('analyses', 0);
+        $this->assertDatabaseCount('documents', 0);
+    }
+
+    public function test_foreign_explicit_workspace_is_rejected_instead_of_falling_back_to_default(): void
+    {
+        [$owner, $defaultWorkspace] = $this->fixture();
+        $this->makeDefault($defaultWorkspace);
+        $other = User::factory()->create();
+        $foreignWorkspace = $this->workspace($other, 'Чужое рабочее дело');
+        [$foreignSource, $foreignVersion] = $this->sourceVersion('Источник чужого дела');
+        $foreignWorkspace->sources()->attach($foreignSource);
+
+        $this->actingAs($owner)->from(route('analyses.workflow.create'))->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $foreignWorkspace->id,
+            'title' => 'Подмена рабочего дела',
+            'analysis_instruction' => 'Проверить',
+            'source_versions' => [$foreignVersion->id],
+        ])->assertRedirect(route('analyses.workflow.create'))->assertSessionHasErrors('workspace_id');
+
+        $this->assertDatabaseCount('analyses', 0);
+        $this->assertDatabaseCount('documents', 0);
     }
 
     public function test_scenario_a_runs_through_shared_execution_service(): void
@@ -172,6 +290,12 @@ class UnifiedAnalysisWorkflowTest extends TestCase
             'category' => 'other',
             'status' => 'draft',
         ]);
+    }
+
+    private function makeDefault(Workspace $workspace): void
+    {
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $workspace->update(['regulatory_profile_id' => $profile->id]);
     }
 
     private function sourceVersion(string $title): array

@@ -3,6 +3,7 @@
 namespace Tests\Feature\Analysis;
 
 use App\Models\Analysis;
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
@@ -49,6 +50,42 @@ class InlinePersonalSourceTest extends TestCase
             ->assertSee('form="inline-source-form"', false)
             ->assertSee('name="docx_file"', false)
             ->assertSee('name="official_url"', false);
+    }
+
+    public function test_empty_personal_sources_message_is_plain_text_without_input_like_border(): void
+    {
+        $user = User::factory()->create();
+        $workspace = $this->workspace($user);
+        $this->makeDefault($workspace);
+
+        $this->actingAs($user)->get(route('analyses.workflow.create'))
+            ->assertOk()
+            ->assertSee('data-source-empty="personal" class="py-2 text-sm text-slate-500', false)
+            ->assertDontSee('data-source-empty="personal" class="rounded-xl border', false);
+    }
+
+    public function test_inline_docx_uses_default_workspace_shown_without_manual_selection(): void
+    {
+        $user = User::factory()->create();
+        $workspace = $this->workspace($user);
+        $this->makeDefault($workspace);
+
+        $this->actingAs($user)->get(route('analyses.workflow.create'))
+            ->assertOk()
+            ->assertSee('<option value="'.$workspace->id.'" selected>', false);
+
+        $response = $this->actingAs($user)->withHeader('Accept', 'application/json')->post(route('workspaces.sources.inline.store', $workspace), [
+            'title' => 'Личный НПА default Workspace',
+            'type' => 'law',
+            'input_method' => 'docx',
+            'docx_file' => $this->docxUpload(['Статья 1. Нормативный текст.']),
+        ]);
+
+        $this->assertSame(201, $response->getStatusCode());
+        $source = Source::sole();
+        $this->assertDatabaseHas('workspace_sources', ['workspace_id' => $workspace->id, 'source_id' => $source->id]);
+        $this->assertNotNull($response->json('version.id'));
+        Http::assertNothingSent();
     }
 
     public function test_docx_inline_creation_is_personal_atomic_attached_and_returns_selectable_version(): void
@@ -171,6 +208,12 @@ class InlinePersonalSourceTest extends TestCase
         $source = Source::create(['title' => $title, 'type' => 'law', 'status' => 'active']);
         if ($owner) { $source->user()->associate($owner); $source->save(); }
         return $source;
+    }
+
+    private function makeDefault(Workspace $workspace): void
+    {
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $workspace->update(['regulatory_profile_id' => $profile->id]);
     }
 
     private function docxUpload(array $paragraphs): UploadedFile

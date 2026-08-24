@@ -2,11 +2,29 @@
 
 namespace App\Http\Requests;
 
+use App\Models\Analysis;
+use App\Services\DefaultWorkspaceResolver;
 use Illuminate\Foundation\Http\FormRequest;
 use Illuminate\Validation\Rule;
 
 class AnalysisWorkflowRequest extends FormRequest
 {
+    protected function prepareForValidation(): void
+    {
+        if ($this->filled('workspace_id') || !$this->user()) {
+            return;
+        }
+
+        $analysis = $this->route('analysis');
+        $workspace = $analysis instanceof Analysis
+            ? $this->user()->workspaces()->find($analysis->workspace_id)
+            : app(DefaultWorkspaceResolver::class)->resolve($this->user());
+
+        if ($workspace) {
+            $this->merge(['workspace_id' => $workspace->id]);
+        }
+    }
+
     public function authorize(): bool
     {
         return $this->user() !== null;

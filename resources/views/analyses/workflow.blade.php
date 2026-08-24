@@ -115,7 +115,7 @@
                                         @foreach ($personalSources as $source)
                                             @include('analyses.partials.source-card', ['source' => $source, 'sourceIds' => $sourceIds])
                                         @endforeach
-                                        <p data-source-empty="personal" class="rounded-xl border border-dashed border-slate-300 p-4 text-sm text-slate-500 {{ $personalSources->isNotEmpty() ? 'hidden' : '' }}">Личные НПА к этому рабочему делу пока не добавлены.</p>
+                                        <p data-source-empty="personal" class="py-2 text-sm text-slate-500 {{ $personalSources->isNotEmpty() ? 'hidden' : '' }}">Личные НПА к этому рабочему делу пока не добавлены.</p>
                                     </div>
                                 </section>
                             </div>
@@ -128,7 +128,7 @@
 
                     @if (App\Models\Source::supportsOwnership())
                     <div class="mt-6 border-t border-slate-100 pt-5">
-                        <button id="inline-source-toggle" type="button" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">+ Добавить НПА</button>
+                        <button id="inline-source-toggle" type="button" @disabled(!$selectedWorkspaceId) class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700 disabled:cursor-not-allowed disabled:border-slate-200 disabled:bg-slate-100 disabled:text-slate-400">+ Добавить НПА</button>
 
                         <div id="inline-source-panel" class="mt-4 hidden rounded-xl border border-blue-100 bg-blue-50/50 p-5">
                             <h3 class="font-bold text-slate-900">Добавить личный НПА</h3>
@@ -205,16 +205,18 @@
             const docxField = document.getElementById('inline-docx-field');
             const urlField = document.getElementById('inline-url-field');
             const endpointTemplate = @js(route('workspaces.sources.inline.store', ['workspace' => '__WORKSPACE__']));
+            const inlineToggle = document.getElementById('inline-source-toggle');
 
             const render = () => {
                 groups.forEach((group) => group.classList.toggle('hidden', group.dataset.workspaceSources !== select.value));
                 placeholder?.classList.toggle('hidden', select.value !== '');
+                if (inlineToggle) inlineToggle.disabled = select.value === '';
             };
 
             select.addEventListener('change', render);
             render();
 
-            document.getElementById('inline-source-toggle')?.addEventListener('click', () => {
+            inlineToggle?.addEventListener('click', () => {
                 if (!select.value) {
                     placeholder?.classList.remove('hidden');
                     return;

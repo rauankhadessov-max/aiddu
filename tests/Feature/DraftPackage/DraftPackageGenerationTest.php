@@ -57,6 +57,129 @@ class DraftPackageGenerationTest extends TestCase
         $this->assertStringContainsString('статьей 30-1', $draft['commands'][1]['text']);
     }
 
+    public function test_target_source_package_accepts_validated_supporting_source_citation(): void
+    {
+        [$user, $analysis, $targetVersion, $supportingVersion] = $this->crossSourceFixture();
+        config()->set('services.openai.key', 'fake-key');
+        $capturedInput = null;
+
+        Http::fake(function (Request $request) use (&$capturedInput) {
+            $capturedInput = $request->data()['input'];
+
+            return Http::response($this->apiResponse([[
+                'amendment_id' => 1,
+                'text' => 'Поправка согласуется с порядком изменения договора, установленным типовой формой.',
+                'warnings' => [],
+            ]]), 200);
+        });
+
+        $this->actingAs($user)
+            ->post(route('draft-packages.store', $analysis))
+            ->assertRedirect(route('analyses.show', $analysis));
+
+        $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
+        $snapshot = $package->plan['amendment_snapshots'][0];
+        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table')->content;
+        $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa')->content;
+
+        $this->assertSame($targetVersion->source_id, $snapshot['source_id']);
+        $this->assertSame($targetVersion->id, $snapshot['source_version_id']);
+        $this->assertSame(['target-fragment'], array_column($snapshot['trusted_target_context'], 'fragment_id'));
+        $this->assertSame(['supporting-fragment'], array_column($snapshot['trusted_legal_basis_context'], 'fragment_id'));
+        $this->assertSame(
+            ['target-fragment', 'supporting-fragment'],
+            array_column($snapshot['trusted_context'], 'fragment_id'),
+        );
+        $this->assertSame(
+            [$targetVersion->id, $supportingVersion->id],
+            collect($package->plan['source_snapshots'])->pluck('source_version_id')->sort()->values()->all(),
+        );
+        $this->assertSame($targetVersion->source_id, data_get($draft, 'target_npa.source_id'));
+        $this->assertStringNotContainsString($supportingVersion->source->title, data_get($draft, 'articles.0.intro'));
+        $this->assertCount(1, $table['rows']);
+        $this->assertStringContainsString('Типовая форма договора', $capturedInput);
+        $this->assertStringContainsString('Изменения оформляются дополнительным соглашением', $capturedInput);
+        Http::assertSentCount(1);
+    }
+
+    public function test_cross_source_package_rejects_untrusted_or_target_mismatched_citations(): void
+    {
+        Http::fake();
+        $cases = [
+            'target_current_text from supporting source' => [
+                'expected' => 'не соответствует поправке',
+                'mutate' => function (Analysis $analysis): void {
+                    $amendment = $analysis->amendments()->sole();
+                    $citations = $amendment->citations;
+                    $citations[1]['purpose'] = 'target_current_text';
+                    $amendment->update(['citations' => $citations]);
+                },
+            ],
+            'target fragment from supporting source' => [
+                'expected' => 'не соответствует поправке',
+                'mutate' => function (Analysis $analysis): void {
+                    $analysis->amendments()->sole()->update(['target_fragment_ids' => ['supporting-fragment']]);
+                },
+            ],
+            'supporting source version not attached' => [
+                'expected' => 'не подключён к Analysis',
+                'mutate' => function (Analysis $analysis, SourceVersion $supporting): void {
+                    $analysis->sourceVersions()->detach($supporting->id);
+                },
+            ],
+            'unknown fragment' => [
+                'expected' => 'отсутствует в snapshot анализа',
+                'mutate' => function (Analysis $analysis): void {
+                    $amendment = $analysis->amendments()->sole();
+                    $citations = $amendment->citations;
+                    $citations[1]['fragment_id'] = 'unknown-fragment';
+                    $amendment->update(['citations' => $citations]);
+                },
+            ],
+            'fabricated quote' => [
+                'expected' => 'не подтверждённую snapshot анализа',
+                'mutate' => function (Analysis $analysis): void {
+                    $amendment = $analysis->amendments()->sole();
+                    $citations = $amendment->citations;
+                    $citations[1]['quote'] = 'Несуществующая цитата supporting Source.';
+                    $amendment->update(['citations' => $citations]);
+                },
+            ],
+            'citation text hash mismatch' => [
+                'expected' => 'несовпадающий text_hash',
+                'mutate' => function (Analysis $analysis): void {
+                    $amendment = $analysis->amendments()->sole();
+                    $citations = $amendment->citations;
+                    $citations[1]['text_hash'] = str_repeat('0', 64);
+                    $amendment->update(['citations' => $citations]);
+                },
+            ],
+            'citation locator mismatch' => [
+                'expected' => 'несовпадающий paragraph',
+                'mutate' => function (Analysis $analysis): void {
+                    $amendment = $analysis->amendments()->sole();
+                    $citations = $amendment->citations;
+                    $citations[1]['paragraph'] = '99';
+                    $amendment->update(['citations' => $citations]);
+                },
+            ],
+        ];
+
+        foreach ($cases as $label => $case) {
+            [, $analysis, , $supportingVersion] = $this->crossSourceFixture();
+            $case['mutate']($analysis, $supportingVersion);
+
+            try {
+                app(DraftPackageInputBuilder::class)->build($analysis->fresh());
+                $this->fail("Case [{$label}] was not rejected.");
+            } catch (\RuntimeException $exception) {
+                $this->assertStringContainsString($case['expected'], $exception->getMessage(), $label);
+            }
+        }
+
+        Http::assertNothingSent();
+    }
+
     public function test_invalid_ai_facts_create_no_partial_package(): void
     {
         [$user, $analysis] = $this->fixture();
@@ -309,6 +432,134 @@ class DraftPackageGenerationTest extends TestCase
         return [$user, $analysis];
     }
 
+    private function crossSourceFixture(): array
+    {
+        $user = User::factory()->create();
+        $workspace = Workspace::create([
+            'user_id' => $user->id,
+            'reference_number' => 'DP-CROSS-'.uniqid(),
+            'title' => 'Рабочее дело',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+        $document = Document::create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'title' => 'Изменение пункта 1 статьи 13',
+            'document_type' => 'draft_law',
+            'language' => 'ru',
+            'analysis_instruction' => 'Проверить поправку по типовой форме договора.',
+            'current_text' => '1. Договор изменяется по соглашению сторон.',
+            'proposed_text' => '1. Договор изменяется в предусмотренных законом случаях.',
+        ]);
+        $targetSource = Source::create([
+            'title' => 'Закон Республики Казахстан «О долевом участии в жилищном строительстве»',
+            'type' => 'law',
+            'status' => 'active',
+        ]);
+        $targetText = '1. Договор изменяется по соглашению сторон.';
+        $targetVersion = SourceVersion::create([
+            'source_id' => $targetSource->id,
+            'version_name' => 'Редакция Закона',
+            'text' => $targetText,
+            'hash' => hash('sha256', $targetText),
+        ]);
+        $supportingSource = Source::create([
+            'title' => 'Типовая форма договора о долевом участии в жилищном строительстве',
+            'type' => 'order',
+            'status' => 'active',
+        ]);
+        $supportingText = '32. Изменения оформляются дополнительным соглашением.';
+        $supportingVersion = SourceVersion::create([
+            'source_id' => $supportingSource->id,
+            'version_name' => 'Редакция типовой формы',
+            'text' => $supportingText,
+            'hash' => hash('sha256', $supportingText),
+        ]);
+        $analysis = Analysis::create([
+            'workspace_id' => $workspace->id,
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'title' => 'Cross-source drafting fixture',
+            'analysis_type' => 'amendment_review',
+            'instruction' => $document->analysis_instruction,
+            'status' => 'completed',
+            'version' => 1,
+            'completed_at' => now(),
+        ]);
+        $analysis->sourceVersions()->attach([$targetVersion->id, $supportingVersion->id], ['role' => 'reference']);
+        $targetFragment = $this->fragment($targetSource, $targetVersion, 'target-fragment', '13', '1', null, $targetText);
+        $supportingFragment = $this->fragment($supportingSource, $supportingVersion, 'supporting-fragment', null, '32', null, $supportingText);
+        $analysis->update(['settings' => [
+            'context_hash' => hash('sha256', json_encode([$targetFragment, $supportingFragment])),
+            'prompt_version' => 'test',
+            'retrieval_version' => 'test',
+            'validator_version' => 'test',
+            'source_snapshots' => [
+                $this->sourceSnapshot($targetSource, $targetVersion),
+                $this->sourceSnapshot($supportingSource, $supportingVersion),
+            ],
+            'retrieval_context' => [$targetFragment, $supportingFragment],
+        ]]);
+        $analysis->amendments()->create([
+            'source_id' => $targetSource->id,
+            'source_version_id' => $targetVersion->id,
+            'target_mode' => 'existing',
+            'structural_element_type' => 'paragraph',
+            'article' => '13',
+            'paragraph' => '1',
+            'amendment_type' => 'new_edition',
+            'disposition' => 'revise',
+            'current_text' => $targetText,
+            'proposed_text' => $document->proposed_text,
+            'justification' => 'Поправка уточняет допустимые случаи изменения договора.',
+            'legal_basis' => 'Типовая форма подтверждает оформление изменений дополнительным соглашением.',
+            'source_reference' => $targetSource->title.'; '.$supportingSource->title,
+            'confidence_score' => 90,
+            'warnings' => [],
+            'target_fragment_ids' => ['target-fragment'],
+            'anchor_fragment_ids' => [],
+            'citations' => [
+                $this->citation($targetFragment, 'target_current_text', 'Договор изменяется по соглашению сторон.'),
+                $this->citation($supportingFragment, 'legal_basis', 'Изменения оформляются дополнительным соглашением.'),
+            ],
+            'target_snapshot' => [
+                'source_id' => $targetSource->id,
+                'source_version_id' => $targetVersion->id,
+                'fragment_ids' => ['target-fragment'],
+            ],
+            'sort_order' => 1,
+        ]);
+
+        return [$user, $analysis, $targetVersion, $supportingVersion];
+    }
+
+    private function citation(array $fragment, string $purpose, string $quote): array
+    {
+        return [
+            'fragment_id' => $fragment['fragment_id'],
+            'quote' => $quote,
+            'purpose' => $purpose,
+            'source_id' => $fragment['source_id'],
+            'source_version_id' => $fragment['source_version_id'],
+            'text_hash' => $fragment['text_hash'],
+            'article' => $fragment['article'],
+            'paragraph' => $fragment['paragraph'],
+            'subparagraph' => $fragment['subparagraph'],
+        ];
+    }
+
+    private function sourceSnapshot(Source $source, SourceVersion $version): array
+    {
+        return [
+            'source_id' => $source->id,
+            'source_version_id' => $version->id,
+            'source_title' => $source->title,
+            'version_name' => $version->version_name,
+            'source_version_hash' => $version->hash,
+        ];
+    }
+
     private function amendment(Analysis $analysis, Source $source, SourceVersion $version, int $order, string $type, string $locator, array $anchors, string $proposed, string $citationId): AnalysisAmendment
     {
         return $analysis->amendments()->create([
@@ -335,6 +586,14 @@ class DraftPackageGenerationTest extends TestCase
                 'fragment_id' => $citationId,
                 'quote' => $citationId === 'f26' ? 'принимать решения' : 'Единый оператор завершает строительство',
                 'purpose' => 'legal_basis',
+                'source_id' => $source->id,
+                'source_version_id' => $version->id,
+                'text_hash' => hash('sha256', $citationId === 'f26'
+                    ? '7) принимать решения;'
+                    : '4. Единый оператор завершает строительство.'),
+                'article' => $citationId === 'f26' ? '26' : '30',
+                'paragraph' => $citationId === 'f26' ? '1' : '4',
+                'subparagraph' => $citationId === 'f26' ? '7' : null,
             ]],
             'target_snapshot' => ['source_id' => $source->id, 'source_version_id' => $version->id, 'fragment_ids' => $anchors],
             'sort_order' => $order,
@@ -342,7 +601,7 @@ class DraftPackageGenerationTest extends TestCase
         ]);
     }
 
-    private function fragment(Source $source, SourceVersion $version, string $id, string $article, ?string $paragraph, ?string $subparagraph, string $text): array
+    private function fragment(Source $source, SourceVersion $version, string $id, ?string $article, ?string $paragraph, ?string $subparagraph, string $text): array
     {
         return [
             'fragment_id' => $id,

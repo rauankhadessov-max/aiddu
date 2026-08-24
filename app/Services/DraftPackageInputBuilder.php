@@ -50,26 +50,48 @@ class DraftPackageInputBuilder
             'status' => $source->status,
         ];
         $profile = $this->typeResolver->resolve($sourceSnapshot);
-        $savedSourceSnapshots = collect($settings['source_snapshots'] ?? [])->keyBy('source_version_id');
-        $sourceSnapshots = $analysis->amendments
-            ->unique('source_version_id')
-            ->map(function (AnalysisAmendment $amendment) use ($sourceSnapshot, $savedSourceSnapshots) {
-                $saved = $savedSourceSnapshots->get($amendment->source_version_id, []);
-
-                return [
-                    ...$sourceSnapshot,
-                    'source_version_id' => $amendment->source_version_id,
-                    'version_name' => $saved['version_name'] ?? $amendment->sourceVersion->version_name,
-                    'effective_date' => $saved['effective_date'] ?? $amendment->sourceVersion->effective_date?->toDateString(),
-                    'source_version_hash' => $saved['source_version_hash'] ?? null,
-                ];
-            })
-            ->values()
-            ->all();
+        $attachedVersions = $analysis->sourceVersions->keyBy('id');
+        $attachedVersionIds = $attachedVersions->keys()->map(fn ($id) => (int) $id)->all();
         $amendments = $analysis->amendments
             ->sortBy([['sort_order', 'asc'], ['id', 'asc']])
-            ->map(fn (AnalysisAmendment $amendment) => $this->amendmentSnapshot($amendment, $context->all()))
+            ->map(fn (AnalysisAmendment $amendment) => $this->amendmentSnapshot(
+                $amendment,
+                $context->all(),
+                $attachedVersionIds,
+            ))
             ->values()
+            ->all();
+        $savedSourceSnapshots = collect($settings['source_snapshots'] ?? [])->keyBy('source_version_id');
+        $usedVersionIds = collect($amendments)
+            ->flatMap(fn (array $amendment) => collect($amendment['trusted_context'])->pluck('source_version_id'))
+            ->map(fn ($id) => (int) $id)
+            ->unique()
+            ->values();
+        $sourceSnapshots = $usedVersionIds
+            ->map(function (int $versionId) use ($attachedVersions, $savedSourceSnapshots) {
+                $version = $attachedVersions->get($versionId);
+
+                if ($version === null) {
+                    throw new RuntimeException("SourceVersion {$versionId} не подключён к Analysis.");
+                }
+
+                $source = $version->source;
+                $saved = $savedSourceSnapshots->get($versionId, []);
+
+                return [
+                    'source_id' => $source->id,
+                    'type' => $source->type,
+                    'title' => $saved['source_title'] ?? $source->title,
+                    'number' => $source->number,
+                    'adoption_date' => $source->adoption_date?->toDateString(),
+                    'issuing_authority' => $source->issuing_authority,
+                    'status' => $source->status,
+                    'source_version_id' => $versionId,
+                    'version_name' => $saved['version_name'] ?? $version->version_name,
+                    'effective_date' => $saved['effective_date'] ?? $version->effective_date?->toDateString(),
+                    'source_version_hash' => $saved['source_version_hash'] ?? $version->hash,
+                ];
+            })
             ->all();
 
         $input = [
@@ -111,38 +133,61 @@ class DraftPackageInputBuilder
         ));
     }
 
-    private function amendmentSnapshot(AnalysisAmendment $amendment, array $context): array
-    {
-        $fragmentIds = array_values(array_unique(array_merge(
+    private function amendmentSnapshot(
+        AnalysisAmendment $amendment,
+        array $context,
+        array $attachedVersionIds,
+    ): array {
+        $attachedVersions = array_fill_keys(array_map('intval', $attachedVersionIds), true);
+        $targetFragmentIds = array_values(array_unique(array_merge(
             $amendment->target_fragment_ids ?? [],
             $amendment->anchor_fragment_ids ?? [],
-            collect($amendment->citations ?? [])->pluck('fragment_id')->filter()->all(),
+            collect($amendment->citations ?? [])
+                ->whereIn('purpose', ['target_current_text', 'parent_anchor'])
+                ->pluck('fragment_id')
+                ->filter()
+                ->all(),
         )));
-        $fragments = [];
+        $targetContext = [];
 
-        foreach ($fragmentIds as $fragmentId) {
-            $fragment = $context[$fragmentId] ?? null;
-            if (! is_array($fragment)) {
-                throw new RuntimeException("Fragment {$fragmentId} отсутствует в snapshot анализа.");
-            }
+        foreach ($targetFragmentIds as $fragmentId) {
+            $fragment = $this->trustedFragment($fragmentId, $context, $attachedVersions);
+
             if ((int) ($fragment['source_version_id'] ?? 0) !== $amendment->source_version_id) {
                 throw new RuntimeException("SourceVersion fragment {$fragmentId} не соответствует поправке.");
             }
-            if (! hash_equals((string) $fragment['text_hash'], hash('sha256', (string) $fragment['text']))) {
-                throw new RuntimeException("Нарушена целостность fragment {$fragmentId}.");
-            }
-            $fragments[] = $fragment;
+
+            $targetContext[$fragmentId] = $fragment;
         }
 
+        $legalBasisContext = [];
+
         foreach ($amendment->citations ?? [] as $citation) {
-            $fragment = $context[$citation['fragment_id'] ?? ''] ?? null;
-            if (! is_array($fragment) || ! str_contains(
-                $this->normalize((string) $fragment['text']),
-                $this->normalize((string) ($citation['quote'] ?? '')),
-            )) {
-                throw new RuntimeException('Поправка содержит citation, не подтверждённую snapshot анализа.');
+            $purpose = $citation['purpose'] ?? null;
+
+            if (! in_array($purpose, ['target_current_text', 'parent_anchor', 'legal_basis', 'cross_reference'], true)) {
+                throw new RuntimeException('Поправка содержит citation с неподдерживаемым purpose.');
             }
+
+            $fragmentId = $citation['fragment_id'] ?? null;
+            $fragment = $this->trustedFragment($fragmentId, $context, $attachedVersions);
+            $this->validateCitation($citation, $fragment);
+
+            if (in_array($purpose, ['target_current_text', 'parent_anchor'], true)) {
+                if (! in_array($fragmentId, $targetFragmentIds, true)
+                    || (int) $fragment['source_version_id'] !== $amendment->source_version_id) {
+                    throw new RuntimeException('Target citation не соответствует target SourceVersion поправки.');
+                }
+
+                $targetContext[$fragmentId] = $fragment;
+
+                continue;
+            }
+
+            $legalBasisContext[$fragmentId] = $fragment;
         }
+
+        $trustedContext = $targetContext + $legalBasisContext;
 
         $target = $this->normalizedTarget($amendment);
         $operation = $this->normalizeOperation($amendment->amendment_type);
@@ -174,8 +219,61 @@ class DraftPackageInputBuilder
             'warnings' => $amendment->warnings ?? [],
             'citations' => $amendment->citations ?? [],
             'target_snapshot' => $amendment->target_snapshot,
-            'trusted_context' => $fragments,
+            'trusted_target_context' => array_values($targetContext),
+            'trusted_legal_basis_context' => array_values($legalBasisContext),
+            'trusted_context' => array_values($trustedContext),
         ];
+    }
+
+    private function trustedFragment(mixed $fragmentId, array $context, array $attachedVersions): array
+    {
+        if (! is_string($fragmentId) || $fragmentId === '' || ! is_array($context[$fragmentId] ?? null)) {
+            throw new RuntimeException("Fragment {$fragmentId} отсутствует в snapshot анализа.");
+        }
+
+        $fragment = $context[$fragmentId];
+        $sourceVersionId = (int) ($fragment['source_version_id'] ?? 0);
+
+        if (! isset($attachedVersions[$sourceVersionId])) {
+            throw new RuntimeException("SourceVersion fragment {$fragmentId} не подключён к Analysis.");
+        }
+
+        $textHash = (string) ($fragment['text_hash'] ?? '');
+        if ($textHash === '' || ! hash_equals($textHash, hash('sha256', (string) ($fragment['text'] ?? '')))) {
+            throw new RuntimeException("Нарушена целостность fragment {$fragmentId}.");
+        }
+
+        return $fragment;
+    }
+
+    private function validateCitation(array $citation, array $fragment): void
+    {
+        $fragmentId = (string) ($citation['fragment_id'] ?? '');
+
+        foreach (['source_id', 'source_version_id', 'text_hash'] as $field) {
+            if (! array_key_exists($field, $citation)
+                || (string) $citation[$field] !== (string) ($fragment[$field] ?? '')) {
+                throw new RuntimeException("Citation {$fragmentId} содержит несовпадающий {$field}.");
+            }
+        }
+
+        $quote = $this->normalize((string) ($citation['quote'] ?? ''));
+        if ($quote === '' || ! str_contains($this->normalize((string) $fragment['text']), $quote)) {
+            throw new RuntimeException('Поправка содержит citation, не подтверждённую snapshot анализа.');
+        }
+
+        foreach (['article', 'paragraph', 'subparagraph'] as $locator) {
+            $claimed = $citation[$locator] ?? null;
+            $trusted = $fragment[$locator] ?? null;
+
+            if ($claimed === null || $claimed === '' || $trusted === null) {
+                continue;
+            }
+
+            if ($this->normalizeLocator((string) $claimed) !== $this->normalizeLocator((string) $trusted)) {
+                throw new RuntimeException("Citation {$fragmentId} содержит несовпадающий {$locator}.");
+            }
+        }
     }
 
     private function normalizedTarget(AnalysisAmendment $amendment): array
@@ -226,6 +324,7 @@ class DraftPackageInputBuilder
                 $result[$key] = rtrim($matches[1], '.)');
             }
         }
+
         return $result;
     }
 
@@ -245,6 +344,7 @@ class DraftPackageInputBuilder
                 break;
             }
         }
+
         return implode(', ', $parts);
     }
 
@@ -264,7 +364,20 @@ class DraftPackageInputBuilder
         $value = Normalizer::normalize($value, Normalizer::FORM_KC) ?: $value;
         $value = str_replace("\u{00A0}", ' ', $value);
         $value = preg_replace('/\s+/u', ' ', $value) ?? $value;
+
         return mb_strtolower(trim($value));
+    }
+
+    private function normalizeLocator(string $value): string
+    {
+        $value = $this->normalize($value);
+        $value = preg_replace(
+            '/\b(?:статья|статьи|статье|пункт|пункта|пункте|подпункт|подпункта|подпункте|бап|тармақ|тармақша)\b/u',
+            '',
+            $value,
+        ) ?? $value;
+
+        return preg_replace('/[^\p{L}\p{N}-]+/u', '', $value) ?? $value;
     }
 
     private function sortRecursively(array &$value): void

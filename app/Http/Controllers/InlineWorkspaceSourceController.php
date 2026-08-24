@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Http\Requests\StoreSourceRequest;
 use App\Models\Workspace;
+use App\Models\Source;
 use App\Services\SourceCreationService;
 use Illuminate\Support\Facades\Gate;
 
@@ -12,6 +13,7 @@ class InlineWorkspaceSourceController extends Controller
     public function store(StoreSourceRequest $request, Workspace $workspace, SourceCreationService $creationService)
     {
         Gate::authorize('update', $workspace);
+        Gate::authorize('create', Source::class);
 
         $source = $creationService->createPersonal(
             $request->user(),

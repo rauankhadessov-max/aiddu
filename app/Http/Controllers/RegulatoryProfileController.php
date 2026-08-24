@@ -6,6 +6,7 @@ use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\Schema;
 use Illuminate\Validation\ValidationException;
 
 class RegulatoryProfileController extends Controller
@@ -47,6 +48,8 @@ class RegulatoryProfileController extends Controller
 
     private function profile(): RegulatoryProfile
     {
+        abort_unless(Schema::hasTable('regulatory_profiles'), 503, 'Regulatory profiles are not available until the pending migration is applied.');
+
         return RegulatoryProfile::query()
             ->where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)
             ->firstOrFail();

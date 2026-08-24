@@ -19,7 +19,7 @@ class SourcePolicy
 
     public function create(User $user): bool
     {
-        return true;
+        return (bool) $user->is_admin || Source::supportsOwnership();
     }
 
     public function update(User $user, Source $source): bool
@@ -31,6 +31,6 @@ class SourcePolicy
 
     public function delete(User $user, Source $source): bool
     {
-        return $this->update($user, $source);
+        return Source::supportsOwnership() && $this->update($user, $source);
     }
 }

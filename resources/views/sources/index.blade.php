@@ -21,7 +21,7 @@
 
             @can('create', App\Models\Source::class)
                 <div class="flex flex-wrap gap-3">
-                    @if (auth()->user()->is_admin)
+                    @if (auth()->user()->is_admin && Illuminate\Support\Facades\Schema::hasTable('regulatory_profiles'))
                         <a href="{{ route('regulatory-profiles.default.edit') }}" class="rounded-xl border border-slate-300 bg-white px-5 py-3 text-sm font-semibold text-slate-700">Стартовый профиль</a>
                     @endif
                     <a href="{{ route('sources.create') }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Добавить НПА</a>

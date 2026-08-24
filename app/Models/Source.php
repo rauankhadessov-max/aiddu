@@ -8,10 +8,35 @@ use Illuminate\Database\Eloquent\SoftDeletes;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\BelongsToMany;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\Schema;
 
 class Source extends Model
 {
-    use SoftDeletes;
+    use SoftDeletes {
+        bootSoftDeletes as private bootSoftDeletesTrait;
+        initializeSoftDeletes as private initializeSoftDeletesTrait;
+    }
+
+    private static ?bool $ownershipSchemaAvailable = null;
+
+    public static function bootSoftDeletes(): void
+    {
+        if (static::supportsOwnership()) {
+            static::bootSoftDeletesTrait();
+        }
+    }
+
+    public function initializeSoftDeletes(): void
+    {
+        if (static::supportsOwnership()) {
+            $this->initializeSoftDeletesTrait();
+        }
+    }
+
+    public static function supportsOwnership(): bool
+    {
+        return static::$ownershipSchemaAvailable ??= Schema::hasColumns('sources', ['user_id', 'deleted_at']);
+    }
 
     protected $fillable = [
         'title',
@@ -57,6 +82,10 @@ class Source extends Model
 
     public function scopeVisibleTo(Builder $query, User $user): Builder
     {
+        if (!static::supportsOwnership()) {
+            return $query;
+        }
+
         return $query->where(function (Builder $query) use ($user) {
             $query->whereNull('user_id')
                 ->orWhere('user_id', $user->id);

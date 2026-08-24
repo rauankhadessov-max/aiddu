@@ -126,6 +126,7 @@
                         </div>
                     </div>
 
+                    @if (App\Models\Source::supportsOwnership())
                     <div class="mt-6 border-t border-slate-100 pt-5">
                         <button id="inline-source-toggle" type="button" class="rounded-xl border border-blue-200 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-700">+ Добавить НПА</button>
 
@@ -172,6 +173,7 @@
                             </div>
                         </div>
                     </div>
+                    @endif
                 </section>
 
                 <div class="flex flex-wrap justify-end gap-3">

@@ -5,6 +5,7 @@ namespace App\Services;
 use App\Models\Analysis;
 use App\Models\Document;
 use App\Models\SourceVersion;
+use App\Models\Source;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Support\Facades\DB;
@@ -96,18 +97,22 @@ class AnalysisWorkflowService
             return;
         }
 
-        $allowedCount = SourceVersion::query()
+        $query = SourceVersion::query()
             ->join('sources', 'sources.id', '=', 'source_versions.source_id')
             ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
             ->where('workspace_sources.workspace_id', $workspace->id)
-            ->whereNull('sources.deleted_at')
-            ->where(function ($query) use ($user) {
-                $query->whereNull('sources.user_id')
-                    ->orWhere('sources.user_id', $user->id);
-            })
             ->whereIn('source_versions.id', $sourceVersionIds)
-            ->distinct()
-            ->count('source_versions.id');
+            ->distinct();
+
+        if (Source::supportsOwnership()) {
+            $query->whereNull('sources.deleted_at')
+                ->where(function ($query) use ($user) {
+                    $query->whereNull('sources.user_id')
+                        ->orWhere('sources.user_id', $user->id);
+                });
+        }
+
+        $allowedCount = $query->count('source_versions.id');
 
         if ($allowedCount !== count($sourceVersionIds)) {
             throw ValidationException::withMessages([

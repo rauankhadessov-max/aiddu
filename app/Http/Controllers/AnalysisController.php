@@ -5,6 +5,7 @@ namespace App\Http\Controllers;
 use App\Models\Analysis;
 use App\Models\Document;
 use App\Models\SourceVersion;
+use App\Models\Source;
 use Illuminate\Http\Request;
 use App\Services\AnalysisExecutionService;
 use App\Services\AnalysisDeletionService;
@@ -186,16 +187,21 @@ public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDel
 
 private function sourceVersionsAvailableFor(Document $document, Request $request)
 {
-    return SourceVersion::query()
+    $query = SourceVersion::query()
         ->select('source_versions.*')
         ->join('sources', 'sources.id', '=', 'source_versions.source_id')
         ->join('workspace_sources', 'workspace_sources.source_id', '=', 'sources.id')
-        ->where('workspace_sources.workspace_id', $document->workspace_id)
-        ->whereNull('sources.deleted_at')
-        ->where(function ($query) use ($request) {
-            $query->whereNull('sources.user_id')
-                ->orWhere('sources.user_id', $request->user()->id);
-        });
+        ->where('workspace_sources.workspace_id', $document->workspace_id);
+
+    if (Source::supportsOwnership()) {
+        $query->whereNull('sources.deleted_at')
+            ->where(function ($query) use ($request) {
+                $query->whereNull('sources.user_id')
+                    ->orWhere('sources.user_id', $request->user()->id);
+            });
+    }
+
+    return $query;
 }
 
 

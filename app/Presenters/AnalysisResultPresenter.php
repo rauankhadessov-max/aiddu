@@ -19,6 +19,14 @@ class AnalysisResultPresenter
         'mandatory_context_budget_exceeded' => 'Обязательный нормативный контекст превышает доступный объём анализа.',
     ];
 
+    private const SEVERITY_LABELS = [
+        'critical' => 'Критический риск',
+        'high' => 'Высокий риск',
+        'medium' => 'Средний риск',
+        'low' => 'Низкий риск',
+        'info' => 'Информация',
+    ];
+
     public function references(AnalysisAmendment $amendment): array
     {
         $reference = (string) $amendment->source_reference;
@@ -32,6 +40,7 @@ class AnalysisResultPresenter
         }
 
         $reference = preg_replace('/\s*\[sv\d+-[a-z0-9]+\]/iu', '', $reference) ?? $reference;
+        $reference = preg_replace('/\bредакция\s+Редакция\s+/iu', 'редакция ', $reference) ?? $reference;
 
         return collect(preg_split('/\s*;\s*/u', $reference) ?: [])
             ->map(fn (string $item) => trim(preg_replace('/\s{2,}/u', ' ', $item) ?? $item))
@@ -41,6 +50,11 @@ class AnalysisResultPresenter
             ->all();
     }
 
+    public function severity(?string $severity): string
+    {
+        return self::SEVERITY_LABELS[$severity ?? ''] ?? 'Юридическое замечание';
+    }
+
     public function sufficiencyLabel(?string $status): ?string
     {
         return self::SUFFICIENCY_LABELS[$status] ?? null;
@@ -48,7 +62,7 @@ class AnalysisResultPresenter
 
     public function warning(mixed $warning): string
     {
-        if (!is_string($warning) || trim($warning) === '') {
+        if (! is_string($warning) || trim($warning) === '') {
             return 'Требуется дополнительная юридическая проверка нормативного основания.';
         }
 

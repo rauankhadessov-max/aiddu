@@ -108,9 +108,12 @@ final readonly class LegalContextFragment
 
     public function trustedReference(): string
     {
+        $versionReference = preg_match('/^редакция\b/iu', trim($this->versionName)) === 1
+            ? trim($this->versionName)
+            : 'редакция '.trim($this->versionName);
         $parts = [
             $this->sourceTitle,
-            'редакция '.$this->versionName,
+            $versionReference,
         ];
 
         if ($this->article !== null) {

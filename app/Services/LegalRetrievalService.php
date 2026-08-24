@@ -7,11 +7,14 @@ use App\Data\LegalRetrievalResult;
 use App\Data\LegalStructuralContextPlan;
 use App\Models\Analysis;
 use App\Models\SourceVersion;
-use Normalizer;
 
 class LegalRetrievalService
 {
-    public function __construct(private readonly LegalStructureService $structureService) {}
+    public function __construct(
+        private readonly LegalStructureService $structureService,
+        private readonly LegalRetrievalTextNormalizer $textNormalizer,
+        private readonly LegalCrossSourceIssueService $crossSourceIssueService,
+    ) {}
 
     public function retrieve(
         Analysis $analysis,
@@ -86,6 +89,16 @@ class LegalRetrievalService
             ];
         }
 
+        $mandatoryVersionIds = array_values(array_unique(array_map(
+            fn (array $group) => (int) $group['source_version_id'],
+            $mandatoryGroups,
+        )));
+        $crossSourceIssues = $this->crossSourceIssueService->discover($analysis, $mandatoryVersionIds);
+        [$crossSourceGroups, $crossSourceCoverage] = $this->crossSourceCandidates(
+            $crossSourceIssues,
+            $allFragments,
+        );
+
         $mandatoryFits = $mandatoryChars <= $totalBudget;
         $selectedMap = [];
         $mandatoryUsed = 0;
@@ -107,6 +120,35 @@ class LegalRetrievalService
         $optionalLimit = $planApplicable
             ? min($configuredOptionalBudget, max(0, $totalBudget - $mandatoryUsed))
             : $totalBudget;
+        $configuredCrossSourceBudget = (int) config('legal_analysis.retrieval.cross_source_reserved_chars', 8000);
+        $crossSourceLimit = min($configuredCrossSourceBudget, $optionalLimit);
+        $crossSourceUsed = 0;
+        $crossSourceIds = [];
+        $selectedCrossGroupIds = [];
+
+        foreach ($crossSourceGroups as $group) {
+            $groupChars = array_sum(array_map(fn (LegalContextFragment $fragment) => $this->promptChars($fragment), $group['fragments']));
+
+            if ($crossSourceUsed + $groupChars > $crossSourceLimit) {
+                continue;
+            }
+
+            foreach ($group['fragments'] as $fragment) {
+                if (isset($selectedMap[$fragment->fragmentId])) {
+                    continue;
+                }
+
+                $selectedMap[$fragment->fragmentId] = $fragment->withScore(max(
+                    $scores[$fragment->fragmentId] ?? 0.0,
+                    $group['score'],
+                ));
+                $crossSourceIds[$fragment->fragmentId] = $group['issue_ids'];
+                $crossSourceUsed += $this->promptChars($fragment);
+            }
+
+            $selectedCrossGroupIds[$group['group_id']] = true;
+        }
+
         $optionalUsed = 0;
         $optionalCount = 0;
         $ranks = [];
@@ -119,6 +161,10 @@ class LegalRetrievalService
                 continue;
             }
 
+            if (isset($crossSourceIds[$fragment->fragmentId])) {
+                continue;
+            }
+
             if ($optionalCount >= $topK) {
                 $optionalDecisions[$fragment->fragmentId] = 'top_k';
 
@@ -127,7 +173,7 @@ class LegalRetrievalService
 
             $chars = $this->promptChars($fragment);
 
-            if ($optionalUsed + $chars > $optionalLimit) {
+            if ($crossSourceUsed + $optionalUsed + $chars > $optionalLimit) {
                 $optionalDecisions[$fragment->fragmentId] = 'budget_skip';
 
                 continue;
@@ -138,6 +184,12 @@ class LegalRetrievalService
             $optionalCount++;
             $optionalDecisions[$fragment->fragmentId] = 'selected_relevance';
         }
+
+        $crossSourceCoverage = $this->finalizeCrossSourceCoverage(
+            $crossSourceCoverage,
+            $selectedCrossGroupIds,
+            $selectedMap,
+        );
 
         $selected = array_values($selectedMap);
         usort($selected, fn (LegalContextFragment $a, LegalContextFragment $b) => $a->sourceVersionId <=> $b->sourceVersionId
@@ -158,20 +210,24 @@ class LegalRetrievalService
         foreach ($allFragments as $fragment) {
             $id = $fragment->fragmentId;
             $mandatory = isset($mandatoryIds[$id]);
+            $crossSource = isset($crossSourceIds[$id]);
             $selectedFragment = isset($selectedMap[$id]);
             $reason = $mandatory
                 ? ($mandatoryFits ? $mandatoryRoles[$id] : 'mandatory_group_oversize')
-                : (($scores[$id] ?? 0.0) <= 0
+                : ($crossSource
+                    ? 'cross_source_issue'
+                    : (($scores[$id] ?? 0.0) <= 0
                     ? 'zero_relevance'
-                    : ($optionalDecisions[$id] ?? 'budget_skip'));
+                    : ($optionalDecisions[$id] ?? 'budget_skip')));
             $fragmentAudit[] = [
                 'fragment_id' => $id,
                 'source_version_id' => $fragment->sourceVersionId,
                 'article' => $fragment->article,
                 'paragraph' => $fragment->paragraph,
                 'subparagraph' => $fragment->subparagraph,
-                'role' => $mandatory ? 'mandatory' : 'optional',
+                'role' => $mandatory ? 'mandatory' : ($crossSource ? 'cross_source' : 'optional'),
                 'mandatory_reason' => $mandatory ? $mandatoryRoles[$id] : null,
+                'cross_source_issue_ids' => $crossSourceIds[$id] ?? [],
                 'score' => round($scores[$id] ?? 0.0, 6),
                 'rank' => $ranks[$id] ?? null,
                 'selected' => $selectedFragment,
@@ -217,6 +273,7 @@ class LegalRetrievalService
             retrievalAudit: [
                 'groups' => $mandatoryGroupAudit,
                 'fragments' => $fragmentAudit,
+                'cross_source_coverage' => $crossSourceCoverage,
             ],
             budgetAudit: [
                 'total_limit' => $totalBudget,
@@ -224,8 +281,11 @@ class LegalRetrievalService
                 'optional_limit' => $optionalLimit,
                 'mandatory_required' => $mandatoryChars,
                 'mandatory_used' => $mandatoryUsed,
-                'optional_used' => $optionalUsed,
-                'total_used' => $mandatoryUsed + $optionalUsed,
+                'cross_source_reserved' => $crossSourceLimit,
+                'cross_source_used' => $crossSourceUsed,
+                'general_optional_used' => $optionalUsed,
+                'optional_used' => $crossSourceUsed + $optionalUsed,
+                'total_used' => $mandatoryUsed + $crossSourceUsed + $optionalUsed,
                 'mandatory_borrowed_from_optional' => max(0, $mandatoryUsed - $reservedBudget),
             ],
             contextSufficiency: $contextSufficiency,
@@ -576,17 +636,7 @@ class LegalRetrievalService
 
     private function tokenize(string $text): array
     {
-        preg_match_all('/[\p{L}\p{N}]+(?:-[\p{L}\p{N}]+)*/u', $this->normalize($text), $matches);
-        $minimum = (int) config('legal_analysis.retrieval.min_term_length', 4);
-        $stopWords = array_fill_keys(array_map(
-            fn (string $word) => $this->normalize($word),
-            array_merge(...array_values(config('legal_analysis.stop_words', []))),
-        ), true);
-
-        return array_values(array_filter(
-            $matches[0] ?? [],
-            fn (string $token) => mb_strlen($token) >= $minimum && ! isset($stopWords[$token]),
-        ));
+        return $this->textNormalizer->tokens($text);
     }
 
     private function extractLegalLocators(string $text): array
@@ -634,6 +684,12 @@ class LegalRetrievalService
 
         foreach ($profile['phrases'] as $phrase) {
             if ($phrase !== '' && $this->containsExactPhrase($normalizedFragment, $phrase)) {
+                $score += $weights['exact_phrase'];
+            }
+        }
+
+        foreach ($profile['stem_phrases'] ?? [] as $phrase) {
+            if ($phrase !== '' && $this->textNormalizer->containsStemPhrase($fragment->text, $phrase)) {
                 $score += $weights['exact_phrase'];
             }
         }
@@ -693,6 +749,158 @@ class LegalRetrievalService
         ));
 
         return preg_match('/(?<![\p{L}\p{N}])'.$pattern.'(?![\p{L}\p{N}])/u', $text) === 1;
+    }
+
+    private function crossSourceCandidates(array $issues, array $allFragments): array
+    {
+        $coverage = [];
+        $candidateMap = [];
+        $maximumGroups = (int) config('legal_analysis.retrieval.cross_source_max_groups_per_issue', 4);
+        $minimumMatches = (int) config('legal_analysis.retrieval.cross_source_min_term_matches', 2);
+
+        foreach ($issues as $issue) {
+            $requestedSources = $issue['requested_sources'] ?? [];
+            $coverageEntry = [
+                'issue_id' => $issue['issue_id'],
+                'legal_issue' => $issue['label'],
+                'requested_sources' => $requestedSources,
+                'corpus_matches' => [],
+                'selected_fragment_ids' => [],
+                'coverage_status' => $issue['status'] === 'ambiguous_source' ? 'ambiguous_source' : 'not_found_in_source_text',
+                'exclusion_reason' => $issue['status'] === 'ambiguous_source' ? 'ambiguous_source' : 'no_relevant_structural_group',
+            ];
+
+            if ($issue['status'] === 'ambiguous_source') {
+                $coverage[] = $coverageEntry;
+
+                continue;
+            }
+
+            $versionId = (int) data_get($requestedSources, '0.source_version_id');
+            $sourceFragments = array_values(array_filter(
+                $allFragments,
+                fn (LegalContextFragment $fragment) => $fragment->sourceVersionId === $versionId,
+            ));
+            $profile = $this->queryProfile((string) $issue['query']);
+            $profile['locators'] = ['article' => [], 'paragraph' => [], 'subparagraph' => []];
+            $profile['stem_phrases'] = $issue['phrases'] ?? [];
+            $corpus = $this->corpusStatistics($sourceFragments);
+            $fragmentScores = [];
+
+            foreach ($sourceFragments as $fragment) {
+                $matchedTerms = array_intersect(
+                    $profile['terms'],
+                    array_unique($this->tokenize($fragment->text)),
+                );
+
+                if (count($matchedTerms) < $minimumMatches) {
+                    continue;
+                }
+
+                $score = $this->scoreFragment($fragment, $profile, $corpus);
+
+                if ($score > 0) {
+                    $fragmentScores[$fragment->fragmentId] = $score;
+                }
+            }
+
+            $groups = [];
+
+            foreach ($this->structureService->structuralGroups($sourceFragments) as $group) {
+                $scores = array_values(array_filter(array_map(
+                    fn (LegalContextFragment $fragment) => $fragmentScores[$fragment->fragmentId] ?? null,
+                    $group['fragments'],
+                ), fn ($score) => $score !== null));
+
+                if ($scores === []) {
+                    continue;
+                }
+
+                rsort($scores, SORT_NUMERIC);
+                $groups[] = array_merge($group, [
+                    'score' => round(array_sum(array_slice($scores, 0, 3)), 6),
+                ]);
+            }
+
+            usort($groups, fn (array $a, array $b) => $b['score'] <=> $a['score']
+                ?: $a['source_version_id'] <=> $b['source_version_id']
+                ?: strcmp($a['group_id'], $b['group_id']));
+            $groups = array_slice($groups, 0, $maximumGroups);
+
+            foreach ($groups as $group) {
+                $fragmentIds = array_map(fn (LegalContextFragment $fragment) => $fragment->fragmentId, $group['fragments']);
+                $coverageEntry['corpus_matches'][] = [
+                    'group_id' => $group['group_id'],
+                    'source_id' => $group['source_id'],
+                    'source_version_id' => $group['source_version_id'],
+                    'article' => $group['article'],
+                    'appendix' => $group['appendix'],
+                    'score' => $group['score'],
+                    'fragment_ids' => $fragmentIds,
+                    'selected' => false,
+                ];
+
+                if (! isset($candidateMap[$group['group_id']])) {
+                    $candidateMap[$group['group_id']] = array_merge($group, [
+                        'issue_ids' => [$issue['issue_id']],
+                    ]);
+                } else {
+                    $candidateMap[$group['group_id']]['score'] = max(
+                        $candidateMap[$group['group_id']]['score'],
+                        $group['score'],
+                    );
+                    $candidateMap[$group['group_id']]['issue_ids'][] = $issue['issue_id'];
+                    $candidateMap[$group['group_id']]['issue_ids'] = array_values(array_unique(
+                        $candidateMap[$group['group_id']]['issue_ids'],
+                    ));
+                }
+            }
+
+            if ($groups !== []) {
+                $coverageEntry['coverage_status'] = 'found_but_not_retrieved';
+                $coverageEntry['exclusion_reason'] = 'pending_budget_selection';
+            }
+
+            $coverage[] = $coverageEntry;
+        }
+
+        $candidates = array_values($candidateMap);
+        usort($candidates, fn (array $a, array $b) => $b['score'] <=> $a['score']
+            ?: $a['source_version_id'] <=> $b['source_version_id']
+            ?: strcmp($a['group_id'], $b['group_id']));
+
+        return [$candidates, $coverage];
+    }
+
+    private function finalizeCrossSourceCoverage(array $coverage, array $selectedGroupIds, array $selectedMap): array
+    {
+        foreach ($coverage as &$entry) {
+            if ($entry['coverage_status'] === 'ambiguous_source' || $entry['corpus_matches'] === []) {
+                continue;
+            }
+
+            $selectedIds = [];
+
+            foreach ($entry['corpus_matches'] as &$match) {
+                $match['selected'] = isset($selectedGroupIds[$match['group_id']])
+                    || collect($match['fragment_ids'])->contains(fn (string $id) => isset($selectedMap[$id]));
+
+                if ($match['selected']) {
+                    array_push($selectedIds, ...array_values(array_filter(
+                        $match['fragment_ids'],
+                        fn (string $id) => isset($selectedMap[$id]),
+                    )));
+                }
+            }
+            unset($match);
+
+            $entry['selected_fragment_ids'] = array_values(array_unique($selectedIds));
+            $entry['coverage_status'] = $selectedIds === [] ? 'found_but_not_retrieved' : 'retrieved';
+            $entry['exclusion_reason'] = $selectedIds === [] ? 'cross_source_budget_skip' : null;
+        }
+        unset($entry);
+
+        return $coverage;
     }
 
     private function selectWithinBudget(array $fragments): array
@@ -757,10 +965,6 @@ class LegalRetrievalService
 
     private function normalize(string $value): string
     {
-        $normalized = Normalizer::normalize($value, Normalizer::FORM_KC) ?: $value;
-        $normalized = str_replace("\u{00A0}", ' ', $normalized);
-        $normalized = preg_replace('/\s+/u', ' ', $normalized) ?? $normalized;
-
-        return mb_strtolower(trim($normalized));
+        return $this->textNormalizer->normalize($value);
     }
 }

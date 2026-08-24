@@ -291,7 +291,7 @@
                 <div class="flex flex-wrap items-center gap-3">
 
                     <span class="rounded-full bg-slate-100 px-3 py-1 text-xs font-semibold uppercase text-slate-600">
-                        {{ $finding->severity }}
+                        {{ $resultPresenter->severity($finding->severity) }}
                     </span>
 
                     <span class="text-xs text-slate-500">

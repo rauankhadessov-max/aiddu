@@ -124,7 +124,7 @@ class StructuralRetrievalFlowTest extends TestCase
             'title' => 'Изменение пункта 1 статьи 13 Закона о долевом участии',
             'current_text' => "Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве\n1. В договор после его заключения по согласию сторон могут быть внесены изменения и дополнения.",
             'proposed_text' => "Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве\n1. В договор могут быть внесены изменения только в случаях, установленных настоящим Законом.",
-            'analysis_instruction' => 'Проведи анализ пункта 1 статьи 13 Закона Республики Казахстан «О долевом участии в жилищном строительстве». Проверь его по гражданскому законодательству, типовой форме договора и строительному законодательству.',
+            'analysis_instruction' => 'Проведи анализ пункта 1 статьи 13 Закона Республики Казахстан «О долевом участии в жилищном строительстве». Проверь соответствие предлагаемого ограничения гражданскому законодательству Республики Казахстан, включая принцип свободы договора, основания и порядок изменения и расторжения договора. Проверь соответствие типовой форме договора о долевом участии в жилищном строительстве.',
         ]);
 
         $analysis = Analysis::with('sourceVersions')->sole();
@@ -156,10 +156,29 @@ class StructuralRetrievalFlowTest extends TestCase
         $this->assertCount(7, collect(data_get($settings, 'retrieval_audit.fragments'))->pluck('source_version_id')->unique());
         $this->assertTrue(collect(data_get($settings, 'retrieval_audit.fragments'))->contains(
             fn (array $fragment) => (int) $fragment['source_version_id'] !== $targetVersion->id
-                && $fragment['role'] === 'optional'
+                && in_array($fragment['role'], ['cross_source', 'optional'], true)
                 && $fragment['selected'] === true,
         ));
+        $civilVersion = collect($otherVersions)->first(fn (SourceVersion $version) => str_contains($version->source->title, 'Гражданский кодекс'));
+        $civilContext = collect(data_get($settings, 'retrieval_context'))
+            ->where('source_version_id', $civilVersion->id);
+        $coverage = collect(data_get($settings, 'retrieval_audit.cross_source_coverage'))
+            ->first(fn (array $entry) => collect($entry['requested_sources'])->contains(
+                fn (array $source) => (int) $source['source_version_id'] === $civilVersion->id,
+            ));
+
+        $this->assertNotNull($coverage);
+        $this->assertSame('retrieved', $coverage['coverage_status']);
+        $this->assertNotEmpty($coverage['selected_fragment_ids']);
+        $this->assertContains('380', $civilContext->pluck('article')->all());
+        $this->assertTrue($civilContext->pluck('article')->intersect(['401', '402'])->isNotEmpty());
+        $this->assertTrue($civilContext->every(fn (array $fragment) => str_starts_with($fragment['fragment_id'], 'sv'.$civilVersion->id.'-')));
+        $this->assertLessThanOrEqual(30000, data_get($settings, 'budget_audit.total_used'));
+        $this->assertGreaterThan(0, data_get($settings, 'budget_audit.cross_source_used'));
         $this->assertStringContainsString('Статья 13. Изменение и расторжение договора', $capturedInput);
+        $this->assertStringContainsString('"article":"380"', $capturedInput);
+        $this->assertStringContainsString('Граждане и юридические лица свободны в заключении договора', $capturedInput);
+        $this->assertStringContainsString('Статья 401. Основания изменения и расторжения договора', $capturedInput);
         $this->assertCount(1, Http::recorded());
     }
 
@@ -269,7 +288,7 @@ class StructuralRetrievalFlowTest extends TestCase
             ['ДДУ в рамках реновации', 'order', "1. Договор реновации заключается письменно.\n2. Дополнительное соглашение подлежит учету."],
             ['Типовая форма договора о предоставлении гарантии', 'order', "1. Гарантия обеспечивает обязательства.\n2. Изменение договора требует проверки гарантии."],
             ['О жилищных отношениях', 'law', "Статья 13. Приобретение права собственности на жилище\n1. Наниматель вправе приватизировать жилище.\n2. Жилище переходит в общую собственность."],
-            ['Гражданский кодекс Республики Казахстан', 'code', "Статья 13. Правоспособность граждан\n1. Граждане обладают гражданскими правами.\n2. Правоспособность прекращается смертью.\n\nСтатья 380. Свобода договора\n1. Граждане и юридические лица свободны в заключении договора."],
+            ['Гражданский кодекс Республики Казахстан', 'code', "Статья 2. Основные начала гражданского законодательства\n1. Гражданское законодательство основывается на признании равенства участников, неприкосновенности собственности и свободы договора.\n\nСтатья 13. Правоспособность граждан\n1. Граждане обладают гражданскими правами.\n2. Правоспособность прекращается смертью.\n\nСтатья 380. Свобода договора\n1. Граждане и юридические лица свободны в заключении договора.\n2. Стороны могут заключить договор, предусмотренный и не предусмотренный законодательством.\n\nСтатья 401. Основания изменения и расторжения договора\n1. Изменение и расторжение договора возможны по соглашению сторон, если иное не предусмотрено кодексом, законами или договором.\n2. По требованию стороны договор может быть изменен или расторгнут судом.\n\nСтатья 402. Порядок изменения и расторжения договора\n1. Соглашение об изменении и расторжении договора совершается в той же форме, что и договор.\n2. Требование может быть заявлено после получения отказа другой стороны."],
             ['СТРОИТЕЛЬНЫЙ КОДЕКС РЕСПУБЛИКИ КАЗАХСТАН', 'code', "Статья 13. Обеспечение экологических требований\n1. Строительная деятельность осуществляется с учетом экологических требований.\n2. Проектная документация содержит природоохранные мероприятия."],
         ];
         $versions = [];

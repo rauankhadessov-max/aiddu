@@ -9,6 +9,7 @@ use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\LegalRetrievalService;
+use App\Services\LegalRetrievalTextNormalizer;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -212,6 +213,70 @@ LAW,
             $this->assertNotEmpty($result->fragments);
             $this->assertNotNull(collect($result->fragments)->first($metadataMatches));
         }
+    }
+
+    public function test_retrieval_normalization_matches_russian_and_kazakh_morphological_variants(): void
+    {
+        $normalizer = app(LegalRetrievalTextNormalizer::class);
+
+        $this->assertSame($normalizer->tokens('свобода договора'), $normalizer->tokens('свободы договора'));
+        $this->assertSame($normalizer->tokens('изменение договора'), $normalizer->tokens('изменений договора'));
+        $this->assertSame($normalizer->tokens('расторжение договора'), $normalizer->tokens('расторжения договора'));
+        $this->assertSame($normalizer->tokens('шарт'), $normalizer->tokens('шарттың'));
+    }
+
+    public function test_cross_source_coverage_distinguishes_retrieved_missing_budget_and_ambiguity(): void
+    {
+        [$retrievedAnalysis] = $this->fixture(
+            "Статья 380. Свобода договора\n1. Граждане и юридические лица свободны в заключении договора.",
+            instruction: 'Проверить соответствие гражданскому законодательству, включая принцип свободы договора.',
+            documentText: 'Ограничивается свобода договора.',
+        );
+        $retrievedAnalysis->sourceVersions->first()->source->update(['title' => 'Гражданский кодекс Республики Казахстан']);
+        $retrieved = app(LegalRetrievalService::class)->retrieve($retrievedAnalysis->fresh());
+
+        $this->assertSame('retrieved', data_get($retrieved->retrievalAudit, 'cross_source_coverage.0.coverage_status'));
+
+        [$missingAnalysis] = $this->fixture(
+            'Статья 1. Электрическое оборудование проходит технические испытания.',
+            instruction: 'Проверить соответствие гражданскому законодательству, включая принцип свободы договора.',
+            documentText: 'Ограничивается свобода договора.',
+        );
+        $missingAnalysis->sourceVersions->first()->source->update(['title' => 'Гражданский кодекс Республики Казахстан']);
+        $missing = app(LegalRetrievalService::class)->retrieve($missingAnalysis->fresh());
+
+        $this->assertSame('not_found_in_source_text', data_get($missing->retrievalAudit, 'cross_source_coverage.0.coverage_status'));
+
+        config()->set('legal_analysis.retrieval.context_budget_chars', 1);
+        config()->set('legal_analysis.retrieval.optional_relevance_chars', 1);
+        config()->set('legal_analysis.retrieval.cross_source_reserved_chars', 1);
+        $notRetrieved = app(LegalRetrievalService::class)->retrieve($retrievedAnalysis->fresh());
+
+        $this->assertSame('found_but_not_retrieved', data_get($notRetrieved->retrievalAudit, 'cross_source_coverage.0.coverage_status'));
+        $this->assertSame('cross_source_budget_skip', data_get($notRetrieved->retrievalAudit, 'cross_source_coverage.0.exclusion_reason'));
+
+        [$ambiguousAnalysis] = $this->fixture(
+            "Статья 380. Свобода договора\n1. Стороны свободны в заключении договора.",
+            instruction: 'Проверить соответствие гражданскому законодательству и принципу свободы договора.',
+            documentText: 'Ограничивается свобода договора.',
+        );
+        $firstVersion = $ambiguousAnalysis->sourceVersions->first();
+        $firstVersion->source->update(['title' => 'Гражданский кодекс Республики Казахстан']);
+        $secondSource = Source::create(['title' => 'Гражданский кодекс Республики Казахстан', 'type' => 'code', 'status' => 'active']);
+        $secondText = "Статья 380. Свобода договора\n1. Юридические лица свободны в заключении договора.";
+        $secondVersion = SourceVersion::create([
+            'source_id' => $secondSource->id,
+            'version_name' => 'Другая редакция',
+            'text' => $secondText,
+            'hash' => hash('sha256', $secondText),
+        ]);
+        $ambiguousAnalysis->sourceVersions()->attach($secondVersion->id, ['role' => 'reference']);
+        config()->set('legal_analysis.retrieval.context_budget_chars', 30000);
+        config()->set('legal_analysis.retrieval.optional_relevance_chars', 12000);
+        config()->set('legal_analysis.retrieval.cross_source_reserved_chars', 8000);
+        $ambiguous = app(LegalRetrievalService::class)->retrieve($ambiguousAnalysis->fresh());
+
+        $this->assertSame('ambiguous_source', data_get($ambiguous->retrievalAudit, 'cross_source_coverage.0.coverage_status'));
     }
 
     private function fixture(

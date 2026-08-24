@@ -178,6 +178,10 @@ class LegalDraftingService
     private function prompt(Analysis $analysis, string $scenario, LegalRetrievalResult $retrieval): string
     {
         $document = $analysis->document;
+        $crossSourceCoverage = json_encode(
+            data_get($retrieval->retrievalAudit, 'cross_source_coverage', []),
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        );
         $contextSufficiency = json_encode(
             $retrieval->contextSufficiency?->toArray() ?? ['status' => 'not_applicable'],
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
@@ -209,6 +213,9 @@ TRUSTED НОРМАТИВНЫЙ КОНТЕКСТ:
 PROGRAMMATIC CONTEXT SUFFICIENCY:
 {$contextSufficiency}
 
+PROGRAMMATIC CROSS-SOURCE COVERAGE:
+{$crossSourceCoverage}
+
 Правила:
 1. Используй только переданный контекст и выбранные SourceVersion.
 2. Не компенсируй отсутствующие НПА внешними знаниями.
@@ -219,6 +226,7 @@ PROGRAMMATIC CONTEXT SUFFICIENCY:
 7. При недостаточности верни source_sufficiency=insufficient, amendments=[] и конкретные warnings без выдуманного названия НПА.
 8. Поле current_text не формируй: оно будет получено приложением из trusted fragments.
 9. Ты не можешь повысить programmatic context_sufficiency. При программной недостаточности не формируй amendments.
+10. Различай отсутствие нормы в SourceVersion и непопадание найденной нормы в retrieval context. Статус found_but_not_retrieved запрещено описывать как отсутствие нормы в нормативной базе или рабочем деле; укажи только на неполноту извлечённого контекста.
 PROMPT;
     }
 

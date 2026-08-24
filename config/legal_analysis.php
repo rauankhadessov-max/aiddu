@@ -2,7 +2,7 @@
 
 return [
     'prompt_version' => 'legal-drafting-v4',
-    'retrieval_version' => 'structural-bm25-v3',
+    'retrieval_version' => 'structural-cross-source-v4',
     'citation_validator_version' => 'citation-v3',
     'drafting_validator_version' => 'amendment-v1',
     'timeout_seconds' => 180,
@@ -11,6 +11,9 @@ return [
         'context_budget_chars' => 30000,
         'structural_reserved_chars' => 18000,
         'optional_relevance_chars' => 12000,
+        'cross_source_reserved_chars' => 8000,
+        'cross_source_max_groups_per_issue' => 4,
+        'cross_source_min_term_matches' => 2,
         'top_k' => 30,
         'max_fragment_chars' => 5000,
         'min_fragment_chars' => 30,

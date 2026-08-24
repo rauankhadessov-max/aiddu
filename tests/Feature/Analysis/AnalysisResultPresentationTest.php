@@ -82,7 +82,7 @@ class AnalysisResultPresentationTest extends TestCase
             'proposed_text' => '7-2) осуществлять предусмотренное законом полномочие;',
             'justification' => 'Поправка уточняет компетенцию.',
             'legal_basis' => 'Статья 26 определяет полномочия оператора.',
-            'source_reference' => $source->title.', редакция Действующая редакция, статья 26, пункт 1 ['.$fragmentId.']',
+            'source_reference' => $source->title.', редакция Редакция из загруженного DOCX, статья 26, пункт 1 ['.$fragmentId.']',
             'confidence_score' => 94,
             'warnings' => ['structural_anchor_not_found: article 30-1'],
             'citations' => [[
@@ -95,6 +95,13 @@ class AnalysisResultPresentationTest extends TestCase
             ],
             'sort_order' => 1,
         ]);
+        $analysis->findings()->create([
+            'finding_type' => 'legal_risk',
+            'severity' => 'high',
+            'title' => 'Требуется уточнение нормы',
+            'description' => 'Описание юридического риска.',
+            'confidence_score' => 88,
+        ]);
 
         $response = $this->actingAs($user)->get(route('analyses.show', $analysis));
 
@@ -104,6 +111,9 @@ class AnalysisResultPresentationTest extends TestCase
             ->assertSee($source->title)
             ->assertSee('статья 26, пункт 1')
             ->assertSee('Уверенность: 94%')
+            ->assertSee('Высокий риск')
+            ->assertDontSee('>high<', false)
+            ->assertDontSee('Редакция Редакция')
             ->assertDontSee('add_element')
             ->assertDontSee('revise')
             ->assertDontSee('keep_as_proposed')

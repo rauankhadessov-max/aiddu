@@ -4,12 +4,14 @@ namespace Tests\Feature\Analysis;
 
 use App\Models\Analysis;
 use App\Models\Document;
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\LegalDraftingService;
 use App\Services\LegalRetrievalService;
+use App\Services\LegalStructuralDiscoveryService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -87,6 +89,119 @@ class StructuralRetrievalFlowTest extends TestCase
         $this->assertCount(1, Http::recorded());
     }
 
+    public function test_production_like_seven_source_case_resolves_target_source_and_keeps_cross_source_context(): void
+    {
+        config()->set('services.openai.key', 'fake-target-source-key');
+        [$user, $workspace, $targetVersion, $otherVersions] = $this->sevenSourceFixture();
+        $capturedInput = null;
+
+        Http::fake(function (Request $request) use (&$capturedInput) {
+            $capturedInput = $request->data()['input'];
+
+            return Http::response([
+                'id' => 'resp_target_source_regression',
+                'model' => 'test-model',
+                'usage' => ['input_tokens' => 900, 'output_tokens' => 80],
+                'output' => [[
+                    'type' => 'message',
+                    'content' => [[
+                        'type' => 'output_text',
+                        'text' => json_encode([
+                            'scenario' => 'amendment_review',
+                            'summary' => 'Целевой НПА определён, межотраслевая проверка выполнена.',
+                            'overall_assessment' => 'Предлагаемая редакция проверена.',
+                            'source_sufficiency' => ['status' => 'sufficient', 'warnings' => []],
+                            'findings' => [],
+                            'amendments' => [],
+                        ], JSON_UNESCAPED_UNICODE | JSON_THROW_ON_ERROR),
+                    ]],
+                ]],
+            ], 200);
+        });
+
+        $response = $this->actingAs($user)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'title' => 'Изменение пункта 1 статьи 13 Закона о долевом участии',
+            'current_text' => "Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве\n1. В договор после его заключения по согласию сторон могут быть внесены изменения и дополнения.",
+            'proposed_text' => "Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве\n1. В договор могут быть внесены изменения только в случаях, установленных настоящим Законом.",
+            'analysis_instruction' => 'Проведи анализ пункта 1 статьи 13 Закона Республики Казахстан «О долевом участии в жилищном строительстве». Проверь его по гражданскому законодательству, типовой форме договора и строительному законодательству.',
+        ]);
+
+        $analysis = Analysis::with('sourceVersions')->sole();
+        $settings = $analysis->settings;
+        $target = data_get($settings, 'context_sufficiency.targets.0');
+
+        $response->assertRedirect(route('analyses.show', $analysis));
+        $this->assertSame($workspace->id, $analysis->workspace_id);
+        $this->assertCount(7, $analysis->sourceVersions);
+        $this->assertSame(
+            collect([$targetVersion->id, ...collect($otherVersions)->pluck('id')->all()])->sort()->values()->all(),
+            $analysis->sourceVersions->pluck('id')->sort()->values()->all(),
+        );
+        $this->assertSame('sufficient', data_get($settings, 'context_sufficiency.status'));
+        $this->assertSame('resolved', $target['source_resolution_status']);
+        $this->assertSame($targetVersion->source_id, $target['target_source_id']);
+        $this->assertSame($targetVersion->id, $target['target_source_version_id']);
+        $this->assertSame('paragraph', $target['element_type']);
+        $this->assertSame('13', $target['article']);
+        $this->assertSame('1', $target['paragraph']);
+        $this->assertContains('exact_current_text', $target['source_resolution_evidence']);
+        $this->assertContains('explicit_instruction_title', $target['source_resolution_evidence']);
+        $this->assertSame([], $target['source_resolution_ambiguity_reasons']);
+        $this->assertTrue(collect(data_get($settings, 'retrieval_audit.groups'))->every(
+            fn (array $group) => (int) $group['source_version_id'] === $targetVersion->id
+                && $group['locator'] === '13'
+                && $group['complete'] === true,
+        ));
+        $this->assertCount(7, collect(data_get($settings, 'retrieval_audit.fragments'))->pluck('source_version_id')->unique());
+        $this->assertTrue(collect(data_get($settings, 'retrieval_audit.fragments'))->contains(
+            fn (array $fragment) => (int) $fragment['source_version_id'] !== $targetVersion->id
+                && $fragment['role'] === 'optional'
+                && $fragment['selected'] === true,
+        ));
+        $this->assertStringContainsString('Статья 13. Изменение и расторжение договора', $capturedInput);
+        $this->assertCount(1, Http::recorded());
+    }
+
+    public function test_explicit_other_npa_overrides_default_primary_source(): void
+    {
+        Http::fake();
+        [$analysis, $primaryVersion, $otherVersion] = $this->twoSourceResolutionFixture(
+            instruction: 'Проверить пункт 1 статьи 13 Закона Республики Казахстан «О жилищных отношениях».',
+            currentText: "Статья 13. Пользовательская действующая редакция\n1. Текст не совпадает с нормативной базой.",
+        );
+
+        $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+        $target = $plan->sufficiency->targets[0];
+
+        $this->assertSame('resolved', $target['source_resolution_status']);
+        $this->assertSame($otherVersion->id, $target['target_source_version_id']);
+        $this->assertNotSame($primaryVersion->id, $target['target_source_version_id']);
+        $this->assertContains('explicit_instruction_title', $target['source_resolution_evidence']);
+        Http::assertNothingSent();
+    }
+
+    public function test_conflicting_explicit_title_and_exact_current_text_remains_ambiguous(): void
+    {
+        Http::fake();
+        [$analysis, $primaryVersion, $otherVersion] = $this->twoSourceResolutionFixture(
+            instruction: 'Проверить пункт 1 статьи 13 Закона Республики Казахстан «О жилищных отношениях».',
+            currentText: "Статья 13. Изменение договора долевого участия\n1. Договор изменяется по соглашению сторон.",
+        );
+
+        $plan = app(LegalStructuralDiscoveryService::class)->plan($analysis);
+        $target = $plan->sufficiency->targets[0];
+
+        $this->assertSame('insufficient', $plan->sufficiency->status);
+        $this->assertSame('ambiguous', $target['source_resolution_status']);
+        $this->assertNull($target['target_source_version_id']);
+        $this->assertContains('conflicting_exact_current_text_and_explicit_source_title', $target['source_resolution_ambiguity_reasons']);
+        $this->assertContains('ambiguous_target_source', $target['reasons']);
+        $this->assertContains($primaryVersion->id, collect($target['candidates'])->pluck('source_version_id')->all());
+        $this->assertContains($otherVersion->id, collect($target['candidates'])->pluck('source_version_id')->all());
+        Http::assertNothingSent();
+    }
+
     private function fixture(): array
     {
         $user = User::factory()->create();
@@ -134,5 +249,92 @@ class StructuralRetrievalFlowTest extends TestCase
         $analysis->sourceVersions()->attach($version->id, ['role' => 'reference']);
 
         return [$analysis, $version];
+    }
+
+    private function sevenSourceFixture(): array
+    {
+        $user = User::factory()->create();
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $workspace = Workspace::create([
+            'user_id' => $user->id,
+            'regulatory_profile_id' => $profile->id,
+            'reference_number' => 'WS-SEVEN-SOURCES',
+            'title' => 'Закон Республики Казахстан «О долевом участии в жилищном строительстве»',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+        $definitions = [
+            ['Закон Республики Казахстан "О долевом участии в жилищном строительстве"', 'law', "Статья 12. Заключение договора\n1. Договор заключается письменно.\n\nСтатья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве\n1. В договор после его заключения по согласию сторон могут быть внесены изменения и дополнения.\n2. Уступка права требования допускается после оплаты цены договора.\n\nСтатья 14. Учет договора\n1. Договор подлежит учету."],
+            ['Типовая форма договора о долевом участии в жилищном строительстве', 'order', "1. Предмет договора о долевом участии.\n2. Изменения оформляются дополнительным соглашением."],
+            ['ДДУ в рамках реновации', 'order', "1. Договор реновации заключается письменно.\n2. Дополнительное соглашение подлежит учету."],
+            ['Типовая форма договора о предоставлении гарантии', 'order', "1. Гарантия обеспечивает обязательства.\n2. Изменение договора требует проверки гарантии."],
+            ['О жилищных отношениях', 'law', "Статья 13. Приобретение права собственности на жилище\n1. Наниматель вправе приватизировать жилище.\n2. Жилище переходит в общую собственность."],
+            ['Гражданский кодекс Республики Казахстан', 'code', "Статья 13. Правоспособность граждан\n1. Граждане обладают гражданскими правами.\n2. Правоспособность прекращается смертью.\n\nСтатья 380. Свобода договора\n1. Граждане и юридические лица свободны в заключении договора."],
+            ['СТРОИТЕЛЬНЫЙ КОДЕКС РЕСПУБЛИКИ КАЗАХСТАН', 'code', "Статья 13. Обеспечение экологических требований\n1. Строительная деятельность осуществляется с учетом экологических требований.\n2. Проектная документация содержит природоохранные мероприятия."],
+        ];
+        $versions = [];
+
+        foreach ($definitions as $index => [$title, $type, $text]) {
+            $source = Source::create(['title' => $title, 'type' => $type, 'status' => 'active']);
+            $version = SourceVersion::create([
+                'source_id' => $source->id,
+                'version_name' => 'Действующая редакция '.$index,
+                'text' => $text,
+                'hash' => hash('sha256', $text),
+            ]);
+            $profile->sources()->attach($source, ['sort_order' => $index, 'is_primary' => $index === 0]);
+            $workspace->sources()->attach($source, ['is_primary' => $index === 0]);
+            $versions[] = $version;
+        }
+
+        return [$user, $workspace, $versions[0], array_slice($versions, 1)];
+    }
+
+    private function twoSourceResolutionFixture(string $instruction, string $currentText): array
+    {
+        $user = User::factory()->create();
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $workspace = Workspace::create([
+            'user_id' => $user->id,
+            'regulatory_profile_id' => $profile->id,
+            'reference_number' => 'WS-TARGET-SOURCE',
+            'title' => 'Закон Республики Казахстан «О долевом участии в жилищном строительстве»',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+        $document = Document::create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'title' => 'Поправка к статье 13',
+            'document_type' => 'legal_norm',
+            'input_type' => 'text',
+            'language' => 'ru',
+            'status' => 'ready',
+            'current_text' => $currentText,
+            'proposed_text' => "Статья 13. Предлагаемая редакция\n1. Новый текст пункта.",
+            'analysis_instruction' => $instruction,
+        ]);
+        $analysis = Analysis::create([
+            'workspace_id' => $workspace->id,
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'title' => 'Проверка выбора целевого НПА',
+            'analysis_type' => 'amendment_review',
+            'instruction' => $instruction,
+            'status' => 'draft',
+            'version' => 1,
+        ]);
+        $primarySource = Source::create(['title' => 'Закон Республики Казахстан «О долевом участии в жилищном строительстве»', 'type' => 'law', 'status' => 'active']);
+        $primaryText = "Статья 13. Изменение договора долевого участия\n1. Договор изменяется по соглашению сторон.\n2. Уступка права допускается после оплаты.";
+        $primaryVersion = SourceVersion::create(['source_id' => $primarySource->id, 'version_name' => 'Редакция 1', 'text' => $primaryText, 'hash' => hash('sha256', $primaryText)]);
+        $otherSource = Source::create(['title' => 'Закон Республики Казахстан «О жилищных отношениях»', 'type' => 'law', 'status' => 'active']);
+        $otherText = "Статья 13. Приобретение права собственности на жилище\n1. Наниматель вправе приватизировать жилище.\n2. Жилище переходит в общую собственность.";
+        $otherVersion = SourceVersion::create(['source_id' => $otherSource->id, 'version_name' => 'Редакция 2', 'text' => $otherText, 'hash' => hash('sha256', $otherText)]);
+        $profile->sources()->attach($primarySource, ['sort_order' => 0, 'is_primary' => true]);
+        $workspace->sources()->attach($primarySource, ['is_primary' => true]);
+        $workspace->sources()->attach($otherSource, ['is_primary' => false]);
+        $analysis->sourceVersions()->attach([$primaryVersion->id, $otherVersion->id], ['role' => 'reference']);
+
+        return [$analysis, $primaryVersion, $otherVersion];
     }
 }

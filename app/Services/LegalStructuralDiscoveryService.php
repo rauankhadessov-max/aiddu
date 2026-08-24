@@ -12,6 +12,7 @@ class LegalStructuralDiscoveryService
     public function __construct(
         private readonly LegalRetrievalService $retrievalService,
         private readonly LegalStructureService $structureService,
+        private readonly LegalTargetSourceResolver $targetSourceResolver,
     ) {}
 
     public function plan(Analysis $analysis, array $candidateFragmentIds = []): LegalStructuralContextPlan
@@ -168,6 +169,13 @@ class LegalStructuralDiscoveryService
                 'missing_elements' => [],
                 'ambiguities' => [],
                 'reasons' => [],
+                'target_source_id' => null,
+                'target_source_version_id' => null,
+                'target_source_title' => null,
+                'source_resolution_status' => 'not_applicable',
+                'source_resolution_evidence' => [],
+                'candidates' => [],
+                'source_resolution_ambiguity_reasons' => [],
             ]);
 
             if ($intent->article === null || ! $this->structureService->isSupportedNumericLocator($intent->article)) {
@@ -178,14 +186,42 @@ class LegalStructuralDiscoveryService
                 continue;
             }
 
-            $matching = array_values(array_filter(
+            $articleGroups = array_values(array_filter(
                 $groups,
                 fn (array $group) => $group['type'] === 'article' && $group['article'] === $intent->article,
             ));
 
-            if (count($matching) > 1) {
+            $sourceResolution = $this->targetSourceResolver->resolve(
+                $analysis,
+                $intent,
+                $articleGroups,
+            );
+            $target = array_merge($target, $sourceResolution);
+
+            if ($sourceResolution['source_resolution_status'] !== 'resolved') {
                 $target['ambiguities'][] = 'article '.$intent->article.' matches multiple selected SourceVersions or scopes';
                 $target['reasons'][] = 'ambiguous_target_source';
+
+                if ($articleGroups === []) {
+                    $target['reasons'][] = 'ambiguous_structural_scope';
+                }
+                $targets[] = $target;
+
+                continue;
+            }
+
+            $targetGroups = array_values(array_filter(
+                $groups,
+                fn (array $group) => (int) $group['source_version_id'] === (int) $sourceResolution['target_source_version_id'],
+            ));
+            $matching = array_values(array_filter(
+                $targetGroups,
+                fn (array $group) => $group['type'] === 'article' && $group['article'] === $intent->article,
+            ));
+
+            if (count($matching) > 1) {
+                $target['ambiguities'][] = 'article '.$intent->article.' matches multiple scopes in target SourceVersion';
+                $target['reasons'][] = 'ambiguous_structural_scope';
                 $targets[] = $target;
 
                 continue;
@@ -262,7 +298,7 @@ class LegalStructuralDiscoveryService
                 continue;
             }
 
-            $anchorCandidates = $this->anchorCandidates($groups, $intent->article);
+            $anchorCandidates = $this->anchorCandidates($targetGroups, $intent->article);
 
             if (count($anchorCandidates) !== 1) {
                 if ($anchorCandidates === []) {

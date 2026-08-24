@@ -114,4 +114,56 @@ class AnalysisResultPresentationTest extends TestCase
             ->assertDontSee('['.$fragmentId.']');
         Http::assertNothingSent();
     }
+
+    public function test_target_source_ambiguity_is_presented_once_in_russian_without_machine_warning(): void
+    {
+        Http::fake();
+        $user = User::factory()->create();
+        $workspace = Workspace::create([
+            'user_id' => $user->id,
+            'reference_number' => 'WS-AMBIGUITY',
+            'title' => 'Рабочее дело',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+        $document = Document::create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'title' => 'Поправка к статье 13',
+            'document_type' => 'legal_norm',
+            'input_type' => 'text',
+            'language' => 'ru',
+            'status' => 'ready',
+            'analysis_instruction' => 'Проверить статью 13',
+        ]);
+        $analysis = Analysis::create([
+            'workspace_id' => $workspace->id,
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'title' => 'Неоднозначная статья 13',
+            'analysis_type' => 'amendment_review',
+            'instruction' => $document->analysis_instruction,
+            'status' => 'completed',
+            'version' => 1,
+            'summary' => 'Требуется уточнение.',
+            'settings' => [
+                'source_sufficiency' => 'insufficient',
+                'overall_assessment' => 'Целевой НПА не определён.',
+                'warnings' => [
+                    'ambiguous_target_source',
+                    'article 13 matches multiple selected SourceVersions or scopes',
+                ],
+            ],
+        ]);
+
+        $response = $this->actingAs($user)->get(route('analyses.show', $analysis));
+        $message = 'Статья 13 найдена в нескольких подключённых НПА. Не удалось однозначно определить изменяемый нормативный акт. Уточните полное название целевого НПА.';
+
+        $response->assertOk()
+            ->assertSee($message)
+            ->assertDontSee('article 13 matches multiple selected SourceVersions or scopes')
+            ->assertDontSee('ambiguous_target_source');
+        $this->assertSame(1, substr_count($response->getContent(), $message));
+        Http::assertNothingSent();
+    }
 }

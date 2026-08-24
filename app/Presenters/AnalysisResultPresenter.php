@@ -15,6 +15,7 @@ class AnalysisResultPresenter
         'existing_target_not_found' => 'Изменяемый структурный элемент не найден в выбранной нормативной базе.',
         'structural_anchor_not_found' => 'Не удалось подтвердить соседние структурные элементы.',
         'ambiguous_structural_scope' => 'Не удалось однозначно определить положение структурного элемента.',
+        'ambiguous_target_source' => 'Статья найдена в нескольких подключённых НПА. Не удалось однозначно определить изменяемый нормативный акт. Уточните полное название целевого НПА.',
         'mandatory_context_budget_exceeded' => 'Обязательный нормативный контекст превышает доступный объём анализа.',
     ];
 
@@ -53,6 +54,10 @@ class AnalysisResultPresenter
 
         $warning = trim($warning);
 
+        if (preg_match('/article\s+([0-9]+(?:-[0-9]+)*)\s+matches multiple selected SourceVersions or scopes/i', $warning, $match) === 1) {
+            return 'Статья '.$match[1].' найдена в нескольких подключённых НПА. Не удалось однозначно определить изменяемый нормативный акт. Уточните полное название целевого НПА.';
+        }
+
         foreach (self::WARNING_LABELS as $code => $label) {
             if (str_contains($warning, $code)) {
                 return $label;
@@ -64,5 +69,25 @@ class AnalysisResultPresenter
         }
 
         return trim(preg_replace('/\s*\[sv\d+-[a-z0-9]+\]/iu', '', $warning) ?? $warning);
+    }
+
+    public function warnings(array $warnings): array
+    {
+        $warnings = collect($warnings);
+        $hasDetailedTargetAmbiguity = $warnings->contains(
+            fn ($warning) => is_string($warning)
+                && str_contains($warning, 'matches multiple selected SourceVersions or scopes'),
+        );
+
+        return $warnings
+            ->when(
+                $hasDetailedTargetAmbiguity,
+                fn ($items) => $items->reject(fn ($warning) => trim((string) $warning) === 'ambiguous_target_source'),
+            )
+            ->map(fn ($warning) => $this->warning($warning))
+            ->filter()
+            ->unique()
+            ->values()
+            ->all();
     }
 }

@@ -144,8 +144,8 @@
                 <div class="text-sm font-semibold text-amber-900">
                     {{ $resultPresenter->sufficiencyLabel(data_get($analysis->settings, 'source_sufficiency')) ?? 'Требуется дополнительная проверка нормативной базы.' }}
                 </div>
-                @foreach (data_get($analysis->settings, 'warnings', []) as $warning)
-                    <p class="mt-2 text-sm text-amber-800">{{ $resultPresenter->warning($warning) }}</p>
+                @foreach ($resultPresenter->warnings(data_get($analysis->settings, 'warnings', [])) as $warning)
+                    <p class="mt-2 text-sm text-amber-800">{{ $warning }}</p>
                 @endforeach
             </div>
         @endif

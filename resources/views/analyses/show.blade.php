@@ -193,6 +193,12 @@
                     Обзор пакета и предупреждений
                 </a>
             @else
+                @if (session('draft_package_error'))
+                    <div class="mt-4 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+                        {{ session('draft_package_error') }}
+                    </div>
+                @endif
+
                 <p class="mt-2 text-sm text-slate-600">
                     Сформируйте сравнительную таблицу и структурированный проект НПА без повторного юридического анализа.
                 </p>
@@ -200,7 +206,7 @@
                 <form method="POST" action="{{ route('draft-packages.store', $analysis) }}" class="mt-5">
                     @csrf
                     <button type="submit" class="rounded-xl bg-indigo-600 px-5 py-3 text-sm font-semibold text-white hover:bg-indigo-500">
-                        Сформировать пакет документов
+                        {{ session('draft_package_error') ? 'Повторить формирование' : 'Сформировать пакет документов' }}
                     </button>
                 </form>
             @endif

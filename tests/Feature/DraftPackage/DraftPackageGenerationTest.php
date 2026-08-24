@@ -10,7 +10,9 @@ use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\ArtifactDocxService;
+use App\Services\DraftPackageAutoGenerationService;
 use App\Services\DraftPackageInputBuilder;
+use App\Services\DraftPackageService;
 use App\Services\LegalAnalysisService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
@@ -225,6 +227,63 @@ class DraftPackageGenerationTest extends TestCase
         $this->assertDatabaseCount('artifacts', 2);
     }
 
+    public function test_completed_analysis_automatically_gets_one_idempotent_package(): void
+    {
+        [$user, $analysis] = $this->fixture();
+        $this->fakeValidJustifications();
+
+        $automation = app(DraftPackageAutoGenerationService::class);
+        $this->assertNull($automation->generate($analysis, $user));
+        $this->assertNull($automation->generate($analysis->fresh(), $user));
+
+        Http::assertSentCount(1);
+        $this->assertDatabaseCount('draft_packages', 1);
+        $this->assertDatabaseCount('artifacts', 2);
+        $package = $analysis->fresh()->draftPackage()->with('artifacts')->sole();
+        $this->assertCount(2, $package->canonicalArtifacts()->get());
+        $this->assertSame(
+            ['comparative_table', 'draft_npa'],
+            $package->canonicalArtifacts()->pluck('artifact_type')->all(),
+        );
+    }
+
+    public function test_auto_generation_skips_analysis_without_confirmed_amendments(): void
+    {
+        [$user, $analysis] = $this->fixture();
+        $analysis->amendments()->delete();
+        Http::fake();
+
+        $this->assertNull(app(DraftPackageAutoGenerationService::class)->generate($analysis, $user));
+
+        $this->assertDatabaseCount('draft_packages', 0);
+        $this->assertDatabaseCount('artifacts', 0);
+        Http::assertNothingSent();
+    }
+
+    public function test_package_failure_preserves_completed_analysis_and_manual_retry(): void
+    {
+        [$user, $analysis] = $this->fixture();
+        Http::fake();
+        $this->mock(DraftPackageService::class, function ($mock) {
+            $mock->shouldReceive('generate')->once()->andThrow(new \RuntimeException('test package failure'));
+        });
+
+        $error = app(DraftPackageAutoGenerationService::class)->generate($analysis, $user);
+
+        $this->assertSame('completed', $analysis->fresh()->status);
+        $this->assertNotNull($error);
+        $this->assertDatabaseCount('draft_packages', 0);
+        $this->assertDatabaseCount('artifacts', 0);
+        $this->actingAs($user)
+            ->withSession(['draft_package_error' => $error])
+            ->get(route('analyses.show', $analysis))
+            ->assertOk()
+            ->assertSee('Юридический анализ завершён, но пакет документов сформировать не удалось.')
+            ->assertSee('Повторить формирование')
+            ->assertSee(route('draft-packages.store', $analysis), false);
+        Http::assertNothingSent();
+    }
+
     public function test_analysis_page_shows_generation_button_then_artifact_links(): void
     {
         [$user, $analysis] = $this->fixture();
@@ -254,6 +313,7 @@ class DraftPackageGenerationTest extends TestCase
         $this->assertSame(2, substr_count($response->getContent(), 'Скачать DOCX'));
         foreach ($canonicalArtifacts as $artifact) {
             $response->assertSee(route('artifacts.show', $artifact), false);
+            $response->assertSee(route('artifacts.docx.download', $artifact), false);
         }
         foreach ($representations as $representation) {
             $response->assertDontSee(route('artifacts.show', $representation), false);

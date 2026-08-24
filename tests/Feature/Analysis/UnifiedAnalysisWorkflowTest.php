@@ -9,6 +9,7 @@ use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\AnalysisExecutionService;
+use App\Services\DraftPackageAutoGenerationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Mockery\MockInterface;
@@ -283,6 +284,29 @@ class UnifiedAnalysisWorkflowTest extends TestCase
         $this->assertSame('amendment_review', $analysis->analysis_type);
         $this->assertSame('Предлагаемая редакция', $analysis->document->proposed_text);
         $this->assertSame([$version->id], $analysis->sourceVersions->pluck('id')->all());
+        Http::assertNothingSent();
+    }
+
+    public function test_successful_unified_run_invokes_package_automation(): void
+    {
+        Http::fake();
+        [$owner, $workspace, $version] = $this->fixture();
+        $this->mock(AnalysisExecutionService::class, fn (MockInterface $mock) => $mock
+            ->shouldReceive('execute')->once()->andReturnTrue());
+        $this->mock(DraftPackageAutoGenerationService::class, function (MockInterface $mock) use ($owner) {
+            $mock->shouldReceive('generate')->once()->withArgs(
+                fn (Analysis $analysis, User $user) => $analysis->user_id === $owner->id && $user->is($owner),
+            )->andReturnNull();
+        });
+
+        $this->actingAs($owner)->post(route('analyses.workflow.store'), [
+            'action' => 'run',
+            'workspace_id' => $workspace->id,
+            'title' => 'Анализ с автоматическим пакетом',
+            'analysis_instruction' => 'Разработать поправку',
+            'source_versions' => [$version->id],
+        ])->assertRedirect();
+
         Http::assertNothingSent();
     }
 

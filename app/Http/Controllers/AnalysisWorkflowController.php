@@ -8,6 +8,7 @@ use App\Models\Document;
 use App\Services\AnalysisExecutionService;
 use App\Services\AnalysisWorkflowService;
 use App\Services\DefaultWorkspaceResolver;
+use App\Services\DraftPackageAutoGenerationService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Throwable;
@@ -36,10 +37,11 @@ class AnalysisWorkflowController extends Controller
         AnalysisWorkflowRequest $request,
         AnalysisWorkflowService $workflowService,
         AnalysisExecutionService $executionService,
+        DraftPackageAutoGenerationService $packageAutomation,
     ) {
         $analysis = $workflowService->save($request->user(), $request->validated());
 
-        return $this->finish($request, $analysis, $executionService);
+        return $this->finish($request, $analysis, $executionService, $packageAutomation);
     }
 
     public function edit(Request $request, Analysis $analysis, DefaultWorkspaceResolver $workspaceResolver)
@@ -66,18 +68,20 @@ class AnalysisWorkflowController extends Controller
         Analysis $analysis,
         AnalysisWorkflowService $workflowService,
         AnalysisExecutionService $executionService,
+        DraftPackageAutoGenerationService $packageAutomation,
     ) {
         Gate::authorize('run', $analysis);
 
         $analysis = $workflowService->save($request->user(), $request->validated(), $analysis);
 
-        return $this->finish($request, $analysis, $executionService);
+        return $this->finish($request, $analysis, $executionService, $packageAutomation);
     }
 
     private function finish(
         AnalysisWorkflowRequest $request,
         Analysis $analysis,
         AnalysisExecutionService $executionService,
+        DraftPackageAutoGenerationService $packageAutomation,
     ) {
         if ($request->validated('action') === 'save_draft') {
             return redirect()
@@ -86,15 +90,23 @@ class AnalysisWorkflowController extends Controller
         }
 
         try {
-            if (!$executionService->execute($analysis)) {
+            if (! $executionService->execute($analysis)) {
                 return redirect()
                     ->route('analyses.show', $analysis)
                     ->with('error', 'Не удалось подтвердить нормативные ссылки в результате анализа.');
             }
 
-            return redirect()
+            $packageError = $packageAutomation->generate($analysis, $request->user());
+
+            $redirect = redirect()
                 ->route('analyses.show', $analysis)
                 ->with('success', 'Юридический анализ успешно выполнен.');
+
+            if ($packageError !== null) {
+                $redirect->with('draft_package_error', $packageError);
+            }
+
+            return $redirect;
         } catch (Throwable $exception) {
             report($exception);
 
@@ -119,13 +131,13 @@ class AnalysisWorkflowController extends Controller
 
     private function prefillDocument(Request $request): ?Document
     {
-        if (!$request->filled('document')) {
+        if (! $request->filled('document')) {
             return null;
         }
 
         $document = Document::find($request->integer('document'));
 
-        if (!$document) {
+        if (! $document) {
             return null;
         }
 

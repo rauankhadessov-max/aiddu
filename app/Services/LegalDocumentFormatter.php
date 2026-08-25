@@ -4,7 +4,45 @@ namespace App\Services;
 
 class LegalDocumentFormatter
 {
-    public const PRESENTATION_VERSION = 'legal-html-v4';
+    public const PRESENTATION_VERSION = 'legal-html-v5';
+
+    /**
+     * Convert immutable audit warnings into safe user-facing legal language.
+     *
+     * @param  array<int, mixed>  $warnings
+     * @return array<int, string>
+     */
+    public function warnings(array $warnings): array
+    {
+        $result = [];
+
+        foreach ($warnings as $warning) {
+            if (! is_string($warning) || trim($warning) === '') {
+                continue;
+            }
+
+            $candidate = $this->normalizeWarning($warning);
+            if ($candidate === '') {
+                continue;
+            }
+
+            $duplicateIndex = null;
+            foreach ($result as $index => $existing) {
+                if ($this->warningsAreEquivalent($existing, $candidate)) {
+                    $duplicateIndex = $index;
+                    break;
+                }
+            }
+
+            if ($duplicateIndex === null) {
+                $result[] = $candidate;
+            } elseif (mb_strlen($candidate) > mb_strlen($result[$duplicateIndex])) {
+                $result[$duplicateIndex] = $candidate;
+            }
+        }
+
+        return array_values($result);
+    }
 
     public function requirementLabel(string $key): string
     {
@@ -328,5 +366,93 @@ class LegalDocumentFormatter
         $value = mb_strtolower(trim($value));
 
         return preg_replace('/\s+/u', ' ', $value) ?? $value;
+    }
+
+    private function normalizeWarning(string $warning): string
+    {
+        $warning = trim(preg_replace('/\s+/u', ' ', $warning) ?? $warning);
+        if (str_contains(mb_strtolower($warning), 'цель')
+            && str_contains(mb_strtolower($warning), 'поправк')) {
+            $warning = str_ireplace('пользовательской', '', $warning);
+            $warning = preg_replace('/\s+/u', ' ', $warning) ?? $warning;
+        }
+        $warning = preg_replace('/\bсохранен\b/ui', 'сохранён', $warning) ?? $warning;
+
+        $warning = preg_replace_callback(
+            '/с\s+неизвлеч[её]нными\s+положениями\s+(.+?)(?=,\s*(?:в частности|в том числе)\b)/ui',
+            static fn (array $matches): string => 'с положениями '.trim($matches[1])
+                .', которые не были охвачены проведённой проверкой',
+            $warning,
+        ) ?? $warning;
+        $warning = preg_replace(
+            '/\bнеизвлеч[её]нн(?:ые|ыми|ых)\s+положени(?:я|ями|й)\b/ui',
+            'положения, не охваченные проведённой проверкой',
+            $warning,
+        ) ?? $warning;
+        $warning = preg_replace(
+            '/\bобоснование\s+не\s+подтверждается\s+предоставленным\s+контекстом\b/ui',
+            'обоснование не подтверждено материалами, использованными для анализа',
+            $warning,
+        ) ?? $warning;
+        $warning = preg_replace(
+            '/,\s*не\s+включ[её]нн(?:ые|ыми|ых)\s+в\s+retrieval(?:[-\s]?контекст)\b/ui',
+            '',
+            $warning,
+        ) ?? $warning;
+
+        $technicalTerms = [
+            '/\bretrieval(?:[-\s]?контекст\p{L}*)?\b/ui' => 'материалы, использованные для анализа',
+            '/\bfragments?\b/ui' => 'положения нормативного источника',
+            '/\bSourceVersion\b/ui' => 'редакция нормативного источника',
+            '/\bBM25\b/ui' => 'автоматический поиск по нормативной базе',
+            '/\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/i' => 'условие проверки',
+        ];
+        foreach ($technicalTerms as $pattern => $replacement) {
+            $warning = preg_replace($pattern, $replacement, $warning) ?? $warning;
+        }
+
+        $warning = preg_replace('/\s+([,.;:])/u', '$1', $warning) ?? $warning;
+        $warning = preg_replace('/,{2,}/u', ',', $warning) ?? $warning;
+
+        return trim($warning);
+    }
+
+    private function warningsAreEquivalent(string $first, string $second): bool
+    {
+        $firstKey = $this->warningKey($first);
+        $secondKey = $this->warningKey($second);
+        if ($firstKey === $secondKey) {
+            return true;
+        }
+
+        $firstTokens = $this->warningTokens($firstKey);
+        $secondTokens = $this->warningTokens($secondKey);
+        if (count($firstTokens) < 6 || count($secondTokens) < 6) {
+            return false;
+        }
+
+        $intersection = count(array_intersect($firstTokens, $secondTokens));
+        $union = count(array_unique(array_merge($firstTokens, $secondTokens)));
+
+        return $union > 0 && ($intersection / $union) >= 0.90;
+    }
+
+    private function warningKey(string $warning): string
+    {
+        $warning = str_replace('ё', 'е', mb_strtolower($warning));
+        $warning = preg_replace('/[^\p{L}\p{N}]+/u', ' ', $warning) ?? $warning;
+
+        return trim(preg_replace('/\s+/u', ' ', $warning) ?? $warning);
+    }
+
+    /** @return array<int, string> */
+    private function warningTokens(string $warning): array
+    {
+        $tokens = preg_split('/\s+/u', $warning) ?: [];
+
+        return array_values(array_unique(array_filter(
+            $tokens,
+            static fn (string $token): bool => mb_strlen($token) >= 4,
+        )));
     }
 }

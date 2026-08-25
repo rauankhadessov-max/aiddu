@@ -47,7 +47,7 @@ class DraftPackageRebuildCommandTest extends TestCase
             ->expectsOutputToContain('Semantic payload:')
             ->expectsOutputToContain('Runtime storage audit:')
             ->expectsOutputToContain('Пункт 1 статьи 13 изложить в следующей редакции:')
-            ->expectsOutputToContain('legal-docx-v3')
+            ->expectsOutputToContain('legal-docx-v4')
             ->assertSuccessful();
 
         $this->assertSame($beforePackage, $package->fresh()->getAttributes());
@@ -106,7 +106,7 @@ class DraftPackageRebuildCommandTest extends TestCase
         $representations = $package->artifacts->whereNotNull('source_artifact_id')->values();
         $this->assertCount(2, $representations);
         foreach ($representations as $representation) {
-            $this->assertSame('legal-docx-v3', $representation->renderer_version);
+            $this->assertSame('legal-docx-v4', $representation->renderer_version);
             $this->assertTrue(app(ArtifactDocxService::class)->isValid($representation));
             $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->source_content_hash);
             $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->logical_content_hash);

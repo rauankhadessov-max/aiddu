@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\ArtifactDocxService;
 use App\Services\DraftPackageInputBuilder;
+use App\Services\DraftPackagePresentationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Storage;
@@ -52,7 +53,7 @@ class ArtifactDocxExportTest extends TestCase
         $representation = Artifact::where('source_artifact_id', $table->id)->sole();
         $this->assertSame('comparative_table_docx', $representation->artifact_type);
         $this->assertSame('docx', $representation->format);
-        $this->assertSame('legal-docx-v3', $representation->renderer_version);
+        $this->assertSame('legal-docx-v4', $representation->renderer_version);
         $this->assertSame('comparative-table-package-'.$table->draft_package_id.'.docx', $representation->filename);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->source_content_hash);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->logical_content_hash);
@@ -88,6 +89,11 @@ class ArtifactDocxExportTest extends TestCase
         );
         $this->assertSame(1, substr_count($text, 'Статья 30-1. Реструктуризация задолженности'));
         $this->assertStringContainsString('Юридические предупреждения', $text);
+        $this->assertSame(1, substr_count($text, 'Следует провести отдельную сверку итоговой редакции с положениями типовой формы'));
+        $this->assertSame(1, substr_count($text, 'Пятимесячный предельный срок сохранён в соответствии с целью поправки'));
+        foreach (['retrieval', 'fragment', 'SourceVersion', 'BM25', 'неизвлеченными'] as $term) {
+            $this->assertStringNotContainsStringIgnoringCase($term, $text);
+        }
         $this->assertStringContainsString('<script>alert(1)</script>', $text);
         $this->assertStringContainsString('&lt;script&gt;alert(1)&lt;/script&gt;', $xml);
         $grid = $this->xpath($xml, '/w:document/w:body/w:tbl[1]/w:tblGrid/w:gridCol');
@@ -112,6 +118,44 @@ class ArtifactDocxExportTest extends TestCase
         $this->assertSame($amendmentTimestamps, $analysis->amendments()->get()->mapWithKeys(
             fn ($amendment) => [$amendment->id => $amendment->getRawOriginal('updated_at')],
         )->all());
+        Http::assertNothingSent();
+    }
+
+    public function test_html_and_docx_share_warning_presentation_without_mutating_canonical_json(): void
+    {
+        [$user, , $table] = $this->fixture();
+        $canonical = $table->content;
+        $presentation = app(DraftPackagePresentationService::class)->comparativeTable($table);
+        $warnings = data_get($presentation, 'rows.2.warnings');
+
+        $this->assertSame([
+            'Следует провести отдельную сверку итоговой редакции с положениями типовой формы договора о долевом участии в жилищном строительстве, которые не были охвачены проведённой проверкой, в частности с терминологией о площади доли, цене и сроке приемки в эксплуатацию.',
+            'Пятимесячный предельный срок сохранён в соответствии с целью поправки, однако его материально-правовое и градостроительное обоснование не подтверждено материалами, использованными для анализа. Перед внесением проекта необходимо проверить соответствующие нормы.',
+        ], $warnings);
+
+        $this->actingAs($user)->post(route('artifacts.docx.download', $table))->assertOk();
+        $text = $this->plainText($this->documentXml(
+            Artifact::where('source_artifact_id', $table->id)->sole(),
+        ));
+        foreach ($warnings as $warning) {
+            $this->assertSame(1, substr_count($text, $warning));
+        }
+        $this->assertSame($canonical, $table->fresh()->content);
+        Http::assertNothingSent();
+    }
+
+    public function test_cli_generated_docx_uses_runtime_shared_posix_permissions(): void
+    {
+        if (PHP_OS_FAMILY === 'Windows') {
+            $this->markTestSkipped('POSIX permissions are not available on Windows.');
+        }
+
+        [$user, , $table] = $this->fixture();
+        $representation = app(ArtifactDocxService::class)->generate($table, $user);
+        $path = Storage::disk($representation->storage_disk)->path($representation->storage_path);
+
+        $this->assertSame(0o004, fileperms($path) & 0o004);
+        $this->assertSame(0o001, fileperms(dirname($path)) & 0o001);
         Http::assertNothingSent();
     }
 
@@ -277,7 +321,11 @@ class ArtifactDocxExportTest extends TestCase
                     'current_text' => '1. Договор изменяется по соглашению сторон.',
                     'proposed_text' => '1. Договор изменяется только в случаях, предусмотренных законом.',
                     'justification' => 'Поправка уточняет порядок изменения договора.',
-                    'warnings' => [],
+                    'warnings' => [
+                        'Следует провести отдельную сверку итоговой редакции с неизвлеченными положениями типовой формы договора о долевом участии в жилищном строительстве, в частности с терминологией о площади доли, цене и сроке приемки в эксплуатацию.',
+                        'Пятимесячный предельный срок сохранен в соответствии с целью пользовательской поправки, однако его материально-правовое и градостроительное обоснование не подтверждается предоставленным контекстом. Перед внесением проекта необходимо проверить соответствующие нормы, не включенные в retrieval-контекст.',
+                        'Пятимесячный предельный срок сохранен в соответствии с целью поправки, однако его материально-правовое и градостроительное обоснование не подтверждается предоставленным контекстом. Перед внесением проекта необходимо проверить соответствующие нормы, не включенные в retrieval-контекст.',
+                    ],
                 ],
             ],
             'warnings' => [],

@@ -92,6 +92,7 @@ class ArtifactDocxService
                     if (! Storage::disk($disk)->put($storagePath, $stream)) {
                         throw new RuntimeException('Не удалось сохранить DOCX в защищённое хранилище.');
                     }
+                    $this->ensureRuntimeReadable($disk, $storagePath);
                 } finally {
                     fclose($stream);
                 }
@@ -181,6 +182,58 @@ class ArtifactDocxService
             || ! is_array($artifact->content)
         ) {
             throw new RuntimeException('Недопустимый canonical Artifact для DOCX export.');
+        }
+    }
+
+    private function ensureRuntimeReadable(string $diskName, string $storagePath): void
+    {
+        if (
+            PHP_OS_FAMILY === 'Windows'
+            || config("filesystems.disks.{$diskName}.driver") !== 'local'
+            || ! function_exists('posix_geteuid')
+        ) {
+            return;
+        }
+
+        $disk = Storage::disk($diskName);
+        $path = $disk->path($storagePath);
+        $root = rtrim($disk->path(''), DIRECTORY_SEPARATOR);
+        $currentUid = posix_geteuid();
+        $directories = [];
+        $directory = dirname($path);
+
+        while ($directory !== $root && str_starts_with($directory, $root.DIRECTORY_SEPARATOR)) {
+            $directories[] = $directory;
+            $directory = dirname($directory);
+        }
+
+        foreach (array_reverse($directories) as $runtimeDirectory) {
+            $this->addOwnerManagedPermission($runtimeDirectory, $currentUid, 0o001);
+        }
+        $this->addOwnerManagedPermission($path, $currentUid, 0o004);
+
+        clearstatcache(true, $path);
+        clearstatcache(true, dirname($path));
+        if ((fileperms($path) & 0o004) !== 0o004 || (fileperms(dirname($path)) & 0o001) !== 0o001) {
+            throw new RuntimeException('DOCX сохранён без прав чтения для PHP-FPM runtime.');
+        }
+    }
+
+    private function addOwnerManagedPermission(string $path, int $currentUid, int $mask): void
+    {
+        $owner = fileowner($path);
+        $permissions = fileperms($path);
+        if ($owner === false || $permissions === false || $owner !== $currentUid) {
+            return;
+        }
+
+        $mode = $permissions & 0o777;
+        if (($mode & $mask) === $mask) {
+            return;
+        }
+
+        if (! chmod($path, $mode | $mask)) {
+            throw new RuntimeException('Не удалось подготовить DOCX для чтения PHP-FPM runtime.');
         }
     }
 

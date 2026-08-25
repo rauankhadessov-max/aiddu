@@ -152,6 +152,37 @@ class LegalDocumentFormatterTest extends TestCase
         $this->assertSame('О внесении изменений в Закон «О жилищных отношениях»', $this->formatter->typographicHeading($heading));
     }
 
+    public function test_warnings_are_normalized_and_semantic_duplicates_are_removed(): void
+    {
+        $warnings = $this->formatter->warnings([
+            'Следует провести отдельную сверку итоговой редакции с неизвлеченными положениями типовой формы договора о долевом участии в жилищном строительстве, в частности с терминологией о площади доли, цене и сроке приемки в эксплуатацию.',
+            'Пятимесячный предельный срок сохранен в соответствии с целью пользовательской поправки, однако его материально-правовое и градостроительное обоснование не подтверждается предоставленным контекстом. Перед внесением проекта необходимо проверить соответствующие нормы, не включенные в retrieval-контекст.',
+            'Пятимесячный предельный срок сохранен в соответствии с целью поправки, однако его материально-правовое и градостроительное обоснование не подтверждается предоставленным контекстом. Перед внесением проекта необходимо проверить соответствующие нормы, не включенные в retrieval-контекст.',
+        ]);
+
+        $this->assertSame([
+            'Следует провести отдельную сверку итоговой редакции с положениями типовой формы договора о долевом участии в жилищном строительстве, которые не были охвачены проведённой проверкой, в частности с терминологией о площади доли, цене и сроке приемки в эксплуатацию.',
+            'Пятимесячный предельный срок сохранён в соответствии с целью поправки, однако его материально-правовое и градостроительное обоснование не подтверждено материалами, использованными для анализа. Перед внесением проекта необходимо проверить соответствующие нормы.',
+        ], $warnings);
+    }
+
+    public function test_warning_normalization_hides_machine_terms_but_preserves_distinct_legal_risks(): void
+    {
+        $warnings = $this->formatter->warnings([
+            'Unknown fragment_id отсутствует в SourceVersion после BM25 retrieval.',
+            'Не подтверждены полномочия государственного органа на принятие проекта.',
+            'Не определён порядок введения проекта в действие.',
+        ]);
+
+        $this->assertCount(3, $warnings);
+        $visible = implode(' ', $warnings);
+        foreach (['retrieval', 'fragment', 'SourceVersion', 'BM25', 'fragment_id'] as $term) {
+            $this->assertStringNotContainsStringIgnoringCase($term, $visible);
+        }
+        $this->assertContains('Не подтверждены полномочия государственного органа на принятие проекта.', $warnings);
+        $this->assertContains('Не определён порядок введения проекта в действие.', $warnings);
+    }
+
     public function test_print_styles_cover_landscape_portrait_and_navigation_hiding(): void
     {
         $css = file_get_contents(resource_path('views/components/layouts/app.blade.php'));

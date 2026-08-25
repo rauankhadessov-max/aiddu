@@ -17,7 +17,7 @@ class DraftPackagePresentationService
         return [
             'version' => LegalDocumentFormatter::PRESENTATION_VERSION,
             'requirements' => $this->requirements(data_get($package->plan, 'requires_user_input', [])),
-            'warnings' => array_values(data_get($package->plan, 'warnings', [])),
+            'warnings' => $this->formatter->warnings(data_get($package->plan, 'warnings', [])),
         ];
     }
 
@@ -55,7 +55,7 @@ class DraftPackagePresentationService
                     $row['article_heading'] ?? null,
                 ),
                 'justification_blocks' => $this->formatter->textBlocks($row['justification'] ?? null),
-                'warnings' => array_values($row['warnings'] ?? []),
+                'warnings' => $this->formatter->warnings($row['warnings'] ?? []),
             ];
         })->all();
 
@@ -64,7 +64,7 @@ class DraftPackagePresentationService
             'heading' => $this->formatter->comparativeTableHeading($context['draft_npa_content']),
             'columns' => $content['columns'] ?? [],
             'rows' => $rows,
-            'warnings' => array_values($content['warnings'] ?? []),
+            'warnings' => $this->formatter->warnings($content['warnings'] ?? []),
         ];
     }
 
@@ -86,7 +86,7 @@ class DraftPackagePresentationService
             'title' => $this->formatter->typographicHeading($content['title'] ?? null),
             'requirements' => $this->requirements($content['requires_user_input'] ?? []),
             'articles' => $articles,
-            'warnings' => array_values($content['warnings'] ?? []),
+            'warnings' => $this->formatter->warnings($content['warnings'] ?? []),
         ];
     }
 

@@ -180,13 +180,14 @@ class DraftPackageDocxRenderer
                     ]);
                 }
 
-                if ($index === 4 && ($row['warnings'] ?? []) !== []) {
+                $warnings = $this->formatter->warnings($row['warnings'] ?? []);
+                if ($index === 4 && $warnings !== []) {
                     $cell->addText('Юридические предупреждения:', [
                         'size' => 9,
                         'bold' => true,
                         'color' => '9C6500',
                     ], ['spaceBefore' => 80, 'spaceAfter' => 40]);
-                    foreach ($row['warnings'] as $warning) {
+                    foreach ($warnings as $warning) {
                         $cell->addText((string) $warning, ['size' => 9, 'color' => '9C6500'], [
                             'leftIndent' => 180,
                             'spaceAfter' => 40,
@@ -196,7 +197,7 @@ class DraftPackageDocxRenderer
             }
         }
 
-        $this->serviceBlock($section, [], $content['warnings'] ?? []);
+        $this->serviceBlock($section, [], $this->formatter->warnings($content['warnings'] ?? []));
     }
 
     private function draftNpa(PhpWord $phpWord, array $content): void
@@ -268,7 +269,11 @@ class DraftPackageDocxRenderer
             fn ($key) => $this->formatter->requirementLabel((string) $key),
             $content['requires_user_input'] ?? [],
         );
-        $this->serviceBlock($section, $requirements, $content['warnings'] ?? []);
+        $this->serviceBlock(
+            $section,
+            $requirements,
+            $this->formatter->warnings($content['warnings'] ?? []),
+        );
     }
 
     private function serviceBlock(object $section, array $requirements, array $warnings): void

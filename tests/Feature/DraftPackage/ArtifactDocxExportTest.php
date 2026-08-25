@@ -52,7 +52,7 @@ class ArtifactDocxExportTest extends TestCase
         $representation = Artifact::where('source_artifact_id', $table->id)->sole();
         $this->assertSame('comparative_table_docx', $representation->artifact_type);
         $this->assertSame('docx', $representation->format);
-        $this->assertSame('legal-docx-v2', $representation->renderer_version);
+        $this->assertSame('legal-docx-v3', $representation->renderer_version);
         $this->assertSame('comparative-table-package-'.$table->draft_package_id.'.docx', $representation->filename);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->source_content_hash);
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $representation->logical_content_hash);
@@ -82,6 +82,10 @@ class ArtifactDocxExportTest extends TestCase
         $this->assertStringNotContainsString('глава 6, статья', $text);
         $this->assertStringContainsString('7-2) отсутствует.', $text);
         $this->assertStringContainsString('Статья 30-1. Отсутствует.', $text);
+        $this->assertSame(
+            2,
+            substr_count($text, 'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве'),
+        );
         $this->assertSame(1, substr_count($text, 'Статья 30-1. Реструктуризация задолженности'));
         $this->assertStringContainsString('Юридические предупреждения', $text);
         $this->assertStringContainsString('<script>alert(1)</script>', $text);
@@ -93,6 +97,11 @@ class ArtifactDocxExportTest extends TestCase
                 'w',
             ),
         )->all());
+        $this->assertSame(0, $this->xpath($xml, '//w:pageBreakBefore')->length);
+        $this->assertSame(0, $this->xpath($xml, '//w:br[@w:type="page"]')->length);
+        $this->assertSame(0, $this->xpath($xml, '/w:document/w:body/w:p[3]/w:pPr/w:keepNext')->length);
+        $this->assertSame(1, $this->xpath($xml, '/w:document/w:body/w:tbl[1]/w:tr[1]/w:trPr/w:cantSplit')->length);
+        $this->assertSame(0, $this->xpath($xml, '/w:document/w:body/w:tbl[1]/w:tr[2]/w:trPr/w:cantSplit')->length);
 
         $second = $this->actingAs($user)->post(route('artifacts.docx.download', $table));
         $second->assertOk();
@@ -259,6 +268,16 @@ class ArtifactDocxExportTest extends TestCase
                     'proposed_text' => "Статья 30-1. Реструктуризация задолженности\n\n1. Условия реструктуризации.\n2. Способы реструктуризации.\n3. Порядок реструктуризации. <script>alert(1)</script>",
                     'justification' => "Необходимо определить механизм.\nПоправка обеспечивает правовую определённость.",
                     'warnings' => ['Проверить согласованность новой статьи с иными нормами.'],
+                ],
+                [
+                    'number' => 3,
+                    'amendment_id' => 3,
+                    'structural_element' => 'глава 4, статья 13, пункт 1',
+                    'article_heading' => 'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве',
+                    'current_text' => '1. Договор изменяется по соглашению сторон.',
+                    'proposed_text' => '1. Договор изменяется только в случаях, предусмотренных законом.',
+                    'justification' => 'Поправка уточняет порядок изменения договора.',
+                    'warnings' => [],
                 ],
             ],
             'warnings' => [],

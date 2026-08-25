@@ -171,16 +171,16 @@
                             <h3 class="font-semibold text-slate-900">
                                 {{ $artifact->artifact_type === 'comparative_table' ? 'Сравнительная таблица' : 'Проект НПА' }}
                             </h3>
-                            <div class="mt-3 flex flex-wrap gap-2">
+                            <div class="analysis-document-actions mt-3">
                                 <a
                                     href="{{ route('artifacts.show', $artifact) }}"
-                                    class="rounded-lg border border-indigo-300 px-3 py-2 text-sm font-semibold text-indigo-700 hover:border-indigo-500"
+                                    class="analysis-artifact-open"
                                 >
                                     Открыть
                                 </a>
                                 <form method="POST" action="{{ route('artifacts.docx.download', $artifact) }}">
                                     @csrf
-                                    <button type="submit" class="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-semibold text-white hover:bg-indigo-500">
+                                    <button type="submit" class="analysis-docx-download">
                                         Скачать DOCX
                                     </button>
                                 </form>

@@ -17,6 +17,28 @@
         .legal-command-block--quotation_start,
         .legal-command-block--norm_heading,
         .legal-command-block--norm_item { padding-left: 1.5rem; }
+        .analysis-document-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
+        .analysis-artifact-open,
+        .analysis-docx-download {
+            display: inline-flex;
+            align-items: center;
+            justify-content: center;
+            border-radius: 0.5rem;
+            padding: 0.5rem 0.75rem;
+            font-size: 0.875rem;
+            line-height: 1.25rem;
+            font-weight: 600;
+            transition: background-color 150ms, border-color 150ms, color 150ms, box-shadow 150ms;
+        }
+        .analysis-artifact-open { border: 1px solid #a5b4fc; color: #4338ca; background: #fff; }
+        .analysis-artifact-open:hover { border-color: #6366f1; background: #eef2ff; }
+        .analysis-docx-download { border: 1px solid #4338ca; color: #fff !important; background: #4f46e5; }
+        .analysis-docx-download:hover { border-color: #3730a3; background: #4338ca; }
+        .analysis-artifact-open:focus-visible,
+        .analysis-docx-download:focus-visible {
+            outline: 3px solid rgba(99, 102, 241, 0.45);
+            outline-offset: 2px;
+        }
 
         @media print {
             html, body { background: #fff !important; color: #000 !important; }

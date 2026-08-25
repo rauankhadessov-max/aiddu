@@ -72,6 +72,36 @@ class DraftPackageDomainTest extends TestCase
         $this->assertNotEmpty($text['warnings']);
     }
 
+    public function test_new_edition_commands_use_target_specific_legal_wording(): void
+    {
+        $compiler = app(AmendmentCommandCompiler::class);
+        $base = [
+            'operation' => 'new_edition',
+            'proposed_text' => '1. Новая редакция.',
+        ];
+
+        $paragraph = $compiler->compile([...$base, 'target' => [
+            'type' => 'paragraph',
+            'locators' => ['chapter' => '4', 'article' => '13', 'paragraph' => '1'],
+            'display' => 'глава 4, статья 13, пункт 1',
+        ]]);
+        $article = $compiler->compile([...$base, 'target' => [
+            'type' => 'article',
+            'locators' => ['chapter' => '4', 'article' => '13'],
+            'display' => 'глава 4, статья 13',
+        ]]);
+        $subparagraph = $compiler->compile([...$base, 'target' => [
+            'type' => 'subparagraph',
+            'locators' => ['article' => '26', 'paragraph' => '1', 'subparagraph' => '7-2'],
+            'display' => 'статья 26, пункт 1, подпункт 7-2',
+        ]]);
+
+        $this->assertStringStartsWith('Пункт 1 статьи 13 изложить в следующей редакции:', $paragraph['text']);
+        $this->assertStringNotContainsString('глава 4, статья 13, пункт 1 изложить', $paragraph['text']);
+        $this->assertStringStartsWith('Статью 13 изложить в следующей редакции:', $article['text']);
+        $this->assertStringStartsWith('Подпункт 7-2) пункта 1 статьи 26 изложить в следующей редакции:', $subparagraph['text']);
+    }
+
     public function test_input_hash_is_stable_for_associative_key_order(): void
     {
         $builder = app(DraftPackageInputBuilder::class);

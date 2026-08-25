@@ -190,6 +190,12 @@ class DraftPackageInputBuilder
         $trustedContext = $targetContext + $legalBasisContext;
 
         $target = $this->normalizedTarget($amendment);
+        $articleHeading = $this->trustedArticleHeading(
+            $amendment,
+            $target,
+            $context,
+            $attachedVersions,
+        );
         $operation = $this->normalizeOperation($amendment->amendment_type);
         $deletion = $operation === 'delete_element';
 
@@ -207,6 +213,7 @@ class DraftPackageInputBuilder
             'source_version_id' => $amendment->source_version_id,
             'target_mode' => $amendment->target_mode,
             'target' => $target,
+            'article_heading' => $articleHeading,
             'operation' => $operation,
             'original_amendment_type' => $amendment->amendment_type,
             'disposition' => $amendment->disposition,
@@ -223,6 +230,51 @@ class DraftPackageInputBuilder
             'trusted_legal_basis_context' => array_values($legalBasisContext),
             'trusted_context' => array_values($trustedContext),
         ];
+    }
+
+    private function trustedArticleHeading(
+        AnalysisAmendment $amendment,
+        array $target,
+        array $context,
+        array $attachedVersions,
+    ): ?array {
+        $article = trim((string) data_get($target, 'locators.article'));
+        if ($article === '' || ($target['type'] ?? null) === 'article') {
+            return null;
+        }
+
+        $candidates = [];
+        foreach ($context as $fragmentId => $candidate) {
+            if (
+                ! is_array($candidate)
+                || (int) ($candidate['source_id'] ?? 0) !== $amendment->source_id
+                || (int) ($candidate['source_version_id'] ?? 0) !== $amendment->source_version_id
+                || ($candidate['element_type'] ?? null) !== 'article'
+                || $this->normalizeLocator((string) ($candidate['article'] ?? '')) !== $this->normalizeLocator($article)
+            ) {
+                continue;
+            }
+
+            $fragment = $this->trustedFragment($fragmentId, $context, $attachedVersions);
+            $lines = preg_split('/\R/u', trim((string) ($fragment['text'] ?? '')), 2);
+            $firstLine = is_array($lines) ? trim((string) ($lines[0] ?? '')) : '';
+            $locator = preg_quote(rtrim($article, ".) \t\n\r\0\x0B"), '/');
+            if (preg_match("/^\\s*(?:Статья|Бап)\\s+{$locator}(?:\\s*[.]|\\b)/ui", $firstLine) !== 1) {
+                continue;
+            }
+
+            $candidates[$fragmentId] = [
+                'text' => $firstLine,
+                'fragment_id' => (string) $fragmentId,
+                'source_id' => (int) $fragment['source_id'],
+                'source_version_id' => (int) $fragment['source_version_id'],
+                'text_hash' => (string) $fragment['text_hash'],
+            ];
+        }
+
+        $unique = collect($candidates)->unique('text')->values();
+
+        return $unique->count() === 1 ? $unique->first() : null;
     }
 
     private function trustedFragment(mixed $fragmentId, array $context, array $attachedVersions): array

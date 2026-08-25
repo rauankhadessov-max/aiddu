@@ -18,6 +18,7 @@ class ComparativeTableBuilder
                 'number' => $index + 1,
                 'amendment_id' => $amendment['amendment_id'],
                 'structural_element' => $amendment['target']['display'],
+                'article_heading' => data_get($amendment, 'article_heading.text'),
                 'current_text' => $amendment['target_mode'] === 'new'
                     ? config('legal_analysis.draft_package.current_text_absent_label')
                     : $amendment['current_text'],

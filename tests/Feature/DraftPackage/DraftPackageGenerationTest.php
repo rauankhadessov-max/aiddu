@@ -51,7 +51,8 @@ class DraftPackageGenerationTest extends TestCase
         $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
         $this->assertMatchesRegularExpression('/^[a-f0-9]{64}$/', $package->plan['input_hash']);
         $this->assertCount(2, $package->plan['artifact_manifest']);
-        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table')->content;
+        $tableArtifact = $package->artifacts->firstWhere('artifact_type', 'comparative_table');
+        $table = $tableArtifact->content;
         $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa')->content;
         $this->assertCount(2, $table['rows']);
         $this->assertSame('Отсутствует', $table['rows'][0]['current_text']);
@@ -81,11 +82,18 @@ class DraftPackageGenerationTest extends TestCase
 
         $package = $analysis->fresh()->draftPackage()->with('artifacts')->firstOrFail();
         $snapshot = $package->plan['amendment_snapshots'][0];
-        $table = $package->artifacts->firstWhere('artifact_type', 'comparative_table')->content;
+        $tableArtifact = $package->artifacts->firstWhere('artifact_type', 'comparative_table');
+        $table = $tableArtifact->content;
         $draft = $package->artifacts->firstWhere('artifact_type', 'draft_npa')->content;
 
         $this->assertSame($targetVersion->source_id, $snapshot['source_id']);
         $this->assertSame($targetVersion->id, $snapshot['source_version_id']);
+        $this->assertSame(
+            'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве',
+            data_get($snapshot, 'article_heading.text'),
+        );
+        $this->assertSame('target-article-heading', data_get($snapshot, 'article_heading.fragment_id'));
+        $this->assertSame($targetVersion->id, data_get($snapshot, 'article_heading.source_version_id'));
         $this->assertSame(['target-fragment'], array_column($snapshot['trusted_target_context'], 'fragment_id'));
         $this->assertSame(['supporting-fragment'], array_column($snapshot['trusted_legal_basis_context'], 'fragment_id'));
         $this->assertSame(
@@ -97,10 +105,29 @@ class DraftPackageGenerationTest extends TestCase
             collect($package->plan['source_snapshots'])->pluck('source_version_id')->sort()->values()->all(),
         );
         $this->assertSame($targetVersion->source_id, data_get($draft, 'target_npa.source_id'));
+        $this->assertSame(
+            'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве',
+            $table['rows'][0]['article_heading'],
+        );
+        $this->assertStringContainsString('Пункт 1 статьи 13 изложить в следующей редакции:', $draft['commands'][0]['text']);
+        $this->assertStringNotContainsString('глава 4, статья 13, пункт 1 изложить', $draft['commands'][0]['text']);
         $this->assertStringNotContainsString($supportingVersion->source->title, data_get($draft, 'articles.0.intro'));
         $this->assertCount(1, $table['rows']);
         $this->assertStringContainsString('Типовая форма договора', $capturedInput);
         $this->assertStringContainsString('Изменения оформляются дополнительным соглашением', $capturedInput);
+        $preview = $this->actingAs($user)->get(route('artifacts.show', $tableArtifact));
+        $preview->assertOk();
+        $this->assertSame(
+            2,
+            substr_count(
+                $preview->getContent(),
+                'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве',
+            ),
+        );
+        $this->assertStringContainsString(
+            'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве',
+            $targetVersion->text,
+        );
         Http::assertSentCount(1);
     }
 
@@ -311,6 +338,10 @@ class DraftPackageGenerationTest extends TestCase
             ->assertDontSee('Открыть весь пакет');
         $this->assertSame(2, substr_count($response->getContent(), 'data-logical-document='));
         $this->assertSame(2, substr_count($response->getContent(), 'Скачать DOCX'));
+        $this->assertSame(2, substr_count($response->getContent(), 'class="analysis-docx-download"'));
+        $response->assertSee('.analysis-docx-download {', false)
+            ->assertSee('.analysis-docx-download:hover', false)
+            ->assertSee('.analysis-docx-download:focus-visible', false);
         foreach ($canonicalArtifacts as $artifact) {
             $response->assertSee(route('artifacts.show', $artifact), false);
             $response->assertSee(route('artifacts.docx.download', $artifact), false);
@@ -517,7 +548,9 @@ class DraftPackageGenerationTest extends TestCase
             'type' => 'law',
             'status' => 'active',
         ]);
-        $targetText = '1. Договор изменяется по соглашению сторон.';
+        $articleHeading = 'Статья 13. Изменение и расторжение договора о долевом участии в жилищном строительстве';
+        $targetCurrentText = '1. Договор изменяется по соглашению сторон.';
+        $targetText = $articleHeading."\n".$targetCurrentText;
         $targetVersion = SourceVersion::create([
             'source_id' => $targetSource->id,
             'version_name' => 'Редакция Закона',
@@ -548,10 +581,19 @@ class DraftPackageGenerationTest extends TestCase
             'completed_at' => now(),
         ]);
         $analysis->sourceVersions()->attach([$targetVersion->id, $supportingVersion->id], ['role' => 'reference']);
-        $targetFragment = $this->fragment($targetSource, $targetVersion, 'target-fragment', '13', '1', null, $targetText);
+        $targetHeadingFragment = $this->fragment(
+            $targetSource,
+            $targetVersion,
+            'target-article-heading',
+            '13',
+            null,
+            null,
+            $articleHeading,
+        );
+        $targetFragment = $this->fragment($targetSource, $targetVersion, 'target-fragment', '13', '1', null, $targetCurrentText);
         $supportingFragment = $this->fragment($supportingSource, $supportingVersion, 'supporting-fragment', null, '32', null, $supportingText);
         $analysis->update(['settings' => [
-            'context_hash' => hash('sha256', json_encode([$targetFragment, $supportingFragment])),
+            'context_hash' => hash('sha256', json_encode([$targetHeadingFragment, $targetFragment, $supportingFragment])),
             'prompt_version' => 'test',
             'retrieval_version' => 'test',
             'validator_version' => 'test',
@@ -559,7 +601,7 @@ class DraftPackageGenerationTest extends TestCase
                 $this->sourceSnapshot($targetSource, $targetVersion),
                 $this->sourceSnapshot($supportingSource, $supportingVersion),
             ],
-            'retrieval_context' => [$targetFragment, $supportingFragment],
+            'retrieval_context' => [$targetHeadingFragment, $targetFragment, $supportingFragment],
         ]]);
         $analysis->amendments()->create([
             'source_id' => $targetSource->id,
@@ -570,7 +612,7 @@ class DraftPackageGenerationTest extends TestCase
             'paragraph' => '1',
             'amendment_type' => 'new_edition',
             'disposition' => 'revise',
-            'current_text' => $targetText,
+            'current_text' => $targetCurrentText,
             'proposed_text' => $document->proposed_text,
             'justification' => 'Поправка уточняет допустимые случаи изменения договора.',
             'legal_basis' => 'Типовая форма подтверждает оформление изменений дополнительным соглашением.',
@@ -677,6 +719,10 @@ class DraftPackageGenerationTest extends TestCase
             'subparagraph' => $subparagraph,
             'text_paragraph' => null,
             'appendix' => null,
+            'element_type' => $subparagraph !== null
+                ? 'subparagraph'
+                : ($paragraph !== null ? 'paragraph' : 'article'),
+            'element_label' => $text,
             'start_offset' => 0,
             'end_offset' => mb_strlen($text),
             'text_hash' => hash('sha256', $text),

@@ -39,14 +39,20 @@ class DraftPackagePresentationService
             return [
                 ...$row,
                 'structural_element' => $structuralElement,
-                'current_blocks' => $this->formatter->currentTextBlocks(
-                    $row['current_text'] ?? null,
-                    $structuralElement,
+                'current_blocks' => $this->formatter->withArticleHeading(
+                    $this->formatter->currentTextBlocks(
+                        $row['current_text'] ?? null,
+                        $structuralElement,
+                    ),
+                    $row['article_heading'] ?? null,
                 ),
-                'proposed_blocks' => $this->formatter->proposedTextBlocks(
-                    $row['proposed_text'] ?? null,
-                    $structuralElement,
-                    $row['current_text'] ?? null,
+                'proposed_blocks' => $this->formatter->withArticleHeading(
+                    $this->formatter->proposedTextBlocks(
+                        $row['proposed_text'] ?? null,
+                        $structuralElement,
+                        $row['current_text'] ?? null,
+                    ),
+                    $row['article_heading'] ?? null,
                 ),
                 'justification_blocks' => $this->formatter->textBlocks($row['justification'] ?? null),
                 'warnings' => array_values($row['warnings'] ?? []),

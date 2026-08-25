@@ -102,7 +102,8 @@ class DraftPackageDocxRenderer
             'headerHeight' => 360,
             'footerHeight' => 360,
         ]);
-        foreach ($this->formatter->comparativeTableHeading($draftNpa) as $index => $line) {
+        $heading = $this->formatter->comparativeTableHeading($draftNpa);
+        foreach ($heading as $index => $line) {
             $section->addText($line, [
                 'name' => 'Times New Roman',
                 'size' => $index === 0 ? 14 : 12,
@@ -111,7 +112,7 @@ class DraftPackageDocxRenderer
                 'alignment' => 'center',
                 'spaceAfter' => $index === 0 ? 100 : 60,
                 'lineHeight' => 1.05,
-                'keepNext' => true,
+                'keepNext' => $index < count($heading) - 1,
             ]);
         }
 
@@ -144,18 +145,24 @@ class DraftPackageDocxRenderer
         }
 
         foreach ($content['rows'] ?? [] as $row) {
-            $table->addRow(null, ['cantSplit' => true]);
+            $table->addRow();
             $structuralElement = $this->formatter->compactCanonicalLocator(
                 (string) ($row['structural_element'] ?? ''),
             );
             $cells = [
                 [[(string) ($row['number'] ?? '')], 'center'],
                 [[$structuralElement], 'left'],
-                [$this->formatter->currentTextBlocks($row['current_text'] ?? null, $structuralElement), 'both'],
-                [$this->formatter->proposedTextBlocks(
-                    $row['proposed_text'] ?? null,
-                    $structuralElement,
-                    $row['current_text'] ?? null,
+                [$this->formatter->withArticleHeading(
+                    $this->formatter->currentTextBlocks($row['current_text'] ?? null, $structuralElement),
+                    $row['article_heading'] ?? null,
+                ), 'both'],
+                [$this->formatter->withArticleHeading(
+                    $this->formatter->proposedTextBlocks(
+                        $row['proposed_text'] ?? null,
+                        $structuralElement,
+                        $row['current_text'] ?? null,
+                    ),
+                    $row['article_heading'] ?? null,
                 ), 'both'],
                 [$this->formatter->textBlocks($row['justification'] ?? null), 'both'],
             ];

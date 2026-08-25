@@ -4,7 +4,7 @@ namespace App\Services;
 
 class LegalDocumentFormatter
 {
-    public const PRESENTATION_VERSION = 'legal-html-v3';
+    public const PRESENTATION_VERSION = 'legal-html-v4';
 
     public function requirementLabel(string $key): string
     {
@@ -77,6 +77,23 @@ class LegalDocumentFormatter
         $blocks = array_values(array_filter($blocks, fn (string $block) => $block !== ''));
 
         return $blocks !== [] ? $blocks : [$text];
+    }
+
+    public function withArticleHeading(array $blocks, ?string $articleHeading): array
+    {
+        $blocks = array_values(array_map('strval', $blocks));
+        $heading = trim((string) $articleHeading);
+        if ($heading === '' || $blocks === []) {
+            return $blocks;
+        }
+
+        $normalizedHeading = $this->normalizePresentationText($heading);
+        $normalizedText = $this->normalizePresentationText(implode("\n", $blocks));
+        if (str_starts_with($normalizedText, $normalizedHeading)) {
+            return $blocks;
+        }
+
+        return array_merge([$heading], $blocks);
     }
 
     public function compactCanonicalLocator(string $locator): string
@@ -304,5 +321,12 @@ class LegalDocumentFormatter
     private function upperFirst(string $value): string
     {
         return mb_strtoupper(mb_substr($value, 0, 1)).mb_substr($value, 1);
+    }
+
+    private function normalizePresentationText(string $value): string
+    {
+        $value = mb_strtolower(trim($value));
+
+        return preg_replace('/\s+/u', ' ', $value) ?? $value;
     }
 }

@@ -44,6 +44,8 @@ class DraftPackageRebuildCommandTest extends TestCase
         $this->artisan('draft-package:rebuild', ['package' => $package->id])
             ->expectsOutputToContain('DraftPackage rebuild dry-run')
             ->expectsOutputToContain('DRY-RUN')
+            ->expectsOutputToContain('Semantic payload:')
+            ->expectsOutputToContain('Runtime storage audit:')
             ->expectsOutputToContain('Пункт 1 статьи 13 изложить в следующей редакции:')
             ->expectsOutputToContain('legal-docx-v3')
             ->assertSuccessful();
@@ -171,9 +173,112 @@ class DraftPackageRebuildCommandTest extends TestCase
             '--apply' => true,
             '--expected-head' => $preview['head'],
             '--expected-plan-hash' => $preview['plan_hash'],
-        ])->expectsOutputToContain('Plan hash не совпадает')->assertFailed();
+        ])->expectsOutputToContain('Semantic plan hash не совпадает')->assertFailed();
 
         $this->assertFalse(Storage::disk('local')->exists('backups/draft-packages'));
+        Http::assertNothingSent();
+    }
+
+    public function test_same_semantic_state_three_times_has_byte_identical_payload_and_hash(): void
+    {
+        [, , $package] = $this->fixture();
+        $service = app(DraftPackageRebuildService::class);
+        $previews = collect(range(1, 3))->map(fn () => $service->preview($package->id));
+        $payloads = $previews->map(fn (array $preview) => json_encode(
+            $preview['semantic_plan_payload'],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
+        ));
+
+        $this->assertCount(1, $previews->pluck('semantic_plan_hash')->unique());
+        $this->assertCount(1, $payloads->unique());
+        $this->assertSame(
+            $previews->first()['new_input_hash'],
+            data_get($previews->first(), 'semantic_plan_payload.input_hash'),
+        );
+        $this->assertArrayNotHasKey('storage', $previews->first()['semantic_plan_payload']);
+        $this->assertStringNotContainsString('binary_sha256', $payloads->first());
+        $this->assertSame(
+            collect(data_get($previews->first(), 'semantic_plan_payload.artifacts'))->pluck('id')->sort()->values()->all(),
+            collect(data_get($previews->first(), 'semantic_plan_payload.artifacts'))->pluck('id')->all(),
+        );
+        $this->assertSame(
+            collect(data_get($previews->first(), 'semantic_plan_payload.renderer.representations'))
+                ->pluck('artifact_type')->sort()->values()->all(),
+            collect(data_get($previews->first(), 'semantic_plan_payload.renderer.representations'))
+                ->pluck('artifact_type')->all(),
+        );
+        $this->assertSame(
+            collect(data_get($previews->first(), '_candidate.input.source_snapshots'))
+                ->pluck('source_version_id')->sort()->values()->all(),
+            collect(data_get($previews->first(), '_candidate.input.source_snapshots'))
+                ->pluck('source_version_id')->all(),
+        );
+
+        $hasher = app(DraftPackageInputBuilder::class);
+        $this->assertNotSame(
+            $hasher->hashPayload(['input_hash' => 'first', 'value' => 1]),
+            $hasher->hashPayload(['input_hash' => 'second', 'value' => 1]),
+        );
+        $this->assertSame(
+            $hasher->hashInputPayload(['input_hash' => 'first', 'value' => 1]),
+            $hasher->hashInputPayload(['input_hash' => 'second', 'value' => 1]),
+        );
+        Http::assertNothingSent();
+    }
+
+    public function test_changed_canonical_input_and_amendment_change_semantic_hash(): void
+    {
+        [, $analysis, $package] = $this->fixture();
+        $service = app(DraftPackageRebuildService::class);
+        $baseline = $service->preview($package->id);
+
+        $analysis->update(['instruction' => 'Изменённое юридически значимое поручение.']);
+        $changedInput = $service->preview($package->id);
+        $this->assertNotSame($baseline['new_input_hash'], $changedInput['new_input_hash']);
+        $this->assertNotSame($baseline['semantic_plan_hash'], $changedInput['semantic_plan_hash']);
+
+        $amendment = $analysis->amendments()->sole();
+        $amendment->update(['warnings' => [
+            'Проверить согласованность регулирования.',
+            'Новое подтверждённое предупреждение.',
+        ]]);
+        $changedAmendment = $service->preview($package->id);
+        $this->assertNotSame(
+            $changedInput['new_canonical_hashes']['comparative_table'],
+            $changedAmendment['new_canonical_hashes']['comparative_table'],
+        );
+        $this->assertNotSame($changedInput['semantic_plan_hash'], $changedAmendment['semantic_plan_hash']);
+        Http::assertNothingSent();
+    }
+
+    public function test_runtime_storage_and_docx_binary_changes_do_not_change_semantic_hash(): void
+    {
+        [, , $package, , , $oldRepresentations] = $this->fixture();
+        $service = app(DraftPackageRebuildService::class);
+        $visible = $service->preview($package->id);
+        $path = $oldRepresentations[0]->storage_path;
+        $visibleAudit = collect($visible['runtime_storage_audit'])->firstWhere(
+            'artifact_id',
+            $oldRepresentations[0]->id,
+        );
+        $this->assertTrue($visibleAudit['exists']);
+
+        Storage::disk('local')->delete($path);
+        sleep(2);
+        $hidden = $service->preview($package->id);
+        $hiddenAudit = collect($hidden['runtime_storage_audit'])->firstWhere(
+            'artifact_id',
+            $oldRepresentations[0]->id,
+        );
+
+        $this->assertFalse($hiddenAudit['exists']);
+        $this->assertNotSame($visible['guard_hash'], $hidden['guard_hash']);
+        $this->assertSame($visible['semantic_plan_payload'], $hidden['semantic_plan_payload']);
+        $this->assertSame($visible['semantic_plan_hash'], $hidden['semantic_plan_hash']);
+        $this->assertNotSame(
+            data_get($visible, 'docx_checks.comparative_table.binary_sha256'),
+            data_get($hidden, 'docx_checks.comparative_table.binary_sha256'),
+        );
         Http::assertNothingSent();
     }
 

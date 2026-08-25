@@ -86,8 +86,8 @@ class RebuildDraftPackage extends Command
             ['Package', $report['package_id']],
             ['Analysis', $report['analysis_id']],
             ['HEAD', $report['head']],
-            ['Guard hash', $report['guard_hash']],
-            ['Plan hash', $report['plan_hash']],
+            ['Runtime/TOCTOU guard hash', $report['guard_hash']],
+            ['Semantic plan hash', $report['semantic_plan_hash']],
             ['Renderer', $report['predicted_storage']['renderer_version']],
             ['Narrative response_id', $report['narrative_response_id'] ?: 'none'],
         ]);
@@ -96,17 +96,23 @@ class RebuildDraftPackage extends Command
             $old = $report['old_canonical_hashes'][$type] ?? 'missing';
             $this->line("  {$type}: {$old} -> {$hash}");
         }
+        $this->line('Semantic payload: '.json_encode(
+            $report['semantic_plan_payload'],
+            JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES,
+        ));
         $this->line('DB rows to update: '.implode(', ', $report['rows_to_update']));
         $this->line('Representation rows to replace: '.($report['representation_rows_to_replace'] === []
             ? 'none'
             : implode(', ', $report['representation_rows_to_replace'])));
-        $this->line('Current storage:');
-        foreach ($report['current_storage'] as $entry) {
+        $this->line('Runtime storage audit:');
+        foreach ($report['runtime_storage_audit'] as $entry) {
             $this->line(sprintf(
-                '  Artifact #%d: %s (%s)',
+                '  Artifact #%d: %s (%s, size=%s, sha256=%s)',
                 $entry['artifact_id'],
                 $entry['path'] ?: 'no file',
                 $entry['exists'] ? 'exists' : 'missing',
+                $entry['file_size'] ?? 'null',
+                $entry['sha256'] ?? 'null',
             ));
         }
         $this->line('Predicted storage:');

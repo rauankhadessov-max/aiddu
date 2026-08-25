@@ -50,7 +50,7 @@ class DraftPackageInputBuilder
             'status' => $source->status,
         ];
         $profile = $this->typeResolver->resolve($sourceSnapshot);
-        $attachedVersions = $analysis->sourceVersions->keyBy('id');
+        $attachedVersions = $analysis->sourceVersions->sortBy('id')->keyBy('id');
         $attachedVersionIds = $attachedVersions->keys()->map(fn ($id) => (int) $id)->all();
         $amendments = $analysis->amendments
             ->sortBy([['sort_order', 'asc'], ['id', 'asc']])
@@ -66,6 +66,7 @@ class DraftPackageInputBuilder
             ->flatMap(fn (array $amendment) => collect($amendment['trusted_context'])->pluck('source_version_id'))
             ->map(fn ($id) => (int) $id)
             ->unique()
+            ->sort()
             ->values();
         $sourceSnapshots = $usedVersionIds
             ->map(function (int $versionId) use ($attachedVersions, $savedSourceSnapshots) {
@@ -117,20 +118,26 @@ class DraftPackageInputBuilder
                 collect($amendments)->flatMap(fn (array $item) => $item['warnings'])->all(),
             ))),
         ];
-        $input['input_hash'] = $this->hashPayload($input);
+        $input['input_hash'] = $this->hashInputPayload($input);
 
         return $input;
     }
 
     public function hashPayload(array $payload): string
     {
-        unset($payload['input_hash']);
         $this->sortRecursively($payload);
 
         return hash('sha256', json_encode(
             $payload,
             JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
         ));
+    }
+
+    public function hashInputPayload(array $payload): string
+    {
+        unset($payload['input_hash']);
+
+        return $this->hashPayload($payload);
     }
 
     private function amendmentSnapshot(

@@ -36,13 +36,8 @@ class DraftPackageRebuildService
         $candidate = $this->candidate($package, $head);
         $docxChecks = $this->verifyTemporaryDocx($package, $candidate);
         $predicted = $this->predictedRepresentations($package, $candidate);
-        $planHash = $this->inputBuilder->hashPayload([
-            'guard_hash' => $guard['guard_hash'],
-            'input_hash' => $candidate['input']['input_hash'],
-            'canonical_hashes' => $candidate['canonical_hashes'],
-            'renderer_version' => $predicted['renderer_version'],
-            'storage_paths' => array_column($predicted['representations'], 'storage_path'),
-        ]);
+        $semanticPlan = $this->semanticPlanPayload($package, $head, $guard, $candidate, $predicted);
+        $semanticPlanHash = $this->inputBuilder->hashPayload($semanticPlan);
 
         return [
             'mode' => 'dry-run',
@@ -50,7 +45,9 @@ class DraftPackageRebuildService
             'analysis_id' => $package->analysis_id,
             'head' => $head,
             'guard_hash' => $guard['guard_hash'],
-            'plan_hash' => $planHash,
+            'semantic_plan_hash' => $semanticPlanHash,
+            'semantic_plan_payload' => $semanticPlan,
+            'plan_hash' => $semanticPlanHash,
             'analysis_updated_at' => $guard['analysis']['updated_at'],
             'amendments' => $guard['amendments'],
             'old_canonical_hashes' => $guard['canonical_hashes'],
@@ -63,6 +60,7 @@ class DraftPackageRebuildService
             'commands' => $candidate['commands'],
             'rows_to_update' => [$package->id, ...array_values($candidate['canonical_artifact_ids'])],
             'representation_rows_to_replace' => $guard['representation_ids'],
+            'runtime_storage_audit' => $guard['storage'],
             'current_storage' => $guard['storage'],
             'predicted_storage' => $predicted,
             'docx_checks' => $docxChecks,
@@ -81,12 +79,16 @@ class DraftPackageRebuildService
         if (! hash_equals($preview['head'], trim($expectedHead))) {
             throw new RuntimeException('HEAD не совпадает с подтверждённым dry-run.');
         }
-        if (! hash_equals($preview['plan_hash'], trim($expectedPlanHash))) {
-            throw new RuntimeException('Plan hash не совпадает с подтверждённым dry-run.');
+        if (! hash_equals($preview['semantic_plan_hash'], trim($expectedPlanHash))) {
+            throw new RuntimeException('Semantic plan hash не совпадает с подтверждённым dry-run.');
         }
 
         $package = $this->loadPackage($packageId);
-        $backup = $this->backupService->create($package, $preview['_guard']);
+        $freshGuard = $this->guard($package, $preview['head']);
+        if (! hash_equals($preview['guard_hash'], $freshGuard['guard_hash'])) {
+            throw new RuntimeException('Runtime state изменился после preview; rebuild отменён.');
+        }
+        $backup = $this->backupService->create($package, $freshGuard);
         $mutated = false;
 
         try {
@@ -94,10 +96,14 @@ class DraftPackageRebuildService
                 $package = DraftPackage::query()->lockForUpdate()->findOrFail($packageId);
                 $package->load([
                     'analysis.document',
+                    'analysis.sourceVersions' => fn ($query) => $query->orderBy('source_versions.id'),
                     'analysis.sourceVersions.source',
+                    'analysis.amendments' => fn ($query) => $query
+                        ->orderBy('sort_order')
+                        ->orderBy('id'),
                     'analysis.amendments.source',
                     'analysis.amendments.sourceVersion',
-                    'artifacts',
+                    'artifacts' => fn ($query) => $query->orderBy('id'),
                 ]);
                 $freshGuard = $this->guard($package, $preview['head']);
                 if (! hash_equals($preview['guard_hash'], $freshGuard['guard_hash'])) {
@@ -242,6 +248,7 @@ class DraftPackageRebuildService
         $canonical = $package->artifacts
             ->whereNull('source_artifact_id')
             ->where('format', 'structured_json')
+            ->sortBy('id')
             ->keyBy('artifact_type');
         $oldTable = $canonical->get('comparative_table');
         $oldDraft = $canonical->get('draft_npa');
@@ -347,8 +354,73 @@ class DraftPackageRebuildService
 
     private function guard(DraftPackage $package, string $head): array
     {
-        $canonicalHashes = $this->canonicalHashes($package);
-        $storage = $package->artifacts->sortBy('id')->map(function (Artifact $artifact): array {
+        $guard = [
+            ...$this->semanticStateGuard($package, $head),
+            'storage' => $this->runtimeStorageAudit($package),
+        ];
+        $guard['guard_hash'] = $this->inputBuilder->hashPayload($guard);
+
+        return $guard;
+    }
+
+    private function semanticStateGuard(DraftPackage $package, string $head): array
+    {
+        $analysis = $package->analysis;
+
+        return [
+            'head' => $head,
+            'package' => [
+                'id' => $package->id,
+                'analysis_id' => $package->analysis_id,
+                'updated_at' => $package->getRawOriginal('updated_at'),
+                'plan_hash' => $this->inputBuilder->hashPayload($package->plan),
+            ],
+            'analysis' => [
+                'id' => $analysis->id,
+                'document_id' => $analysis->document_id,
+                'user_id' => $analysis->user_id,
+                'status' => $analysis->status,
+                'updated_at' => $analysis->getRawOriginal('updated_at'),
+                'settings_hash' => $this->inputBuilder->hashPayload($analysis->settings ?? []),
+            ],
+            'amendments' => $analysis->amendments
+                ->sortBy([['sort_order', 'asc'], ['id', 'asc']])
+                ->map(fn ($amendment) => [
+                    'id' => $amendment->id,
+                    'sort_order' => $amendment->sort_order,
+                    'updated_at' => $amendment->getRawOriginal('updated_at'),
+                    'attributes_hash' => $this->inputBuilder->hashPayload($amendment->getAttributes()),
+                ])->values()->all(),
+            'artifacts' => $package->artifacts->sortBy('id')->map(fn (Artifact $artifact) => [
+                'id' => $artifact->id,
+                'draft_package_id' => $artifact->draft_package_id,
+                'source_artifact_id' => $artifact->source_artifact_id,
+                'artifact_type' => $artifact->artifact_type,
+                'format' => $artifact->format,
+                'status' => $artifact->status,
+                'updated_at' => $artifact->getRawOriginal('updated_at'),
+                'renderer_version' => $artifact->renderer_version,
+                'source_content_hash' => $artifact->source_content_hash,
+                'logical_content_hash' => $artifact->logical_content_hash,
+                'canonical_content_hash' => $artifact->source_artifact_id === null
+                    && $artifact->format === 'structured_json'
+                    ? $this->inputBuilder->hashPayload($artifact->content)
+                    : null,
+            ])->values()->all(),
+            'artifact_ids' => $package->artifacts->sortBy('id')->pluck('id')->values()->all(),
+            'canonical_hashes' => $this->canonicalHashes($package),
+            'representation_ids' => $package->artifacts
+                ->whereNotNull('source_artifact_id')
+                ->sortBy('id')
+                ->pluck('id')
+                ->values()
+                ->all(),
+        ];
+    }
+
+    private function runtimeStorageAudit(DraftPackage $package): array
+    {
+        return $package->artifacts->sortBy('id')->map(function (Artifact $artifact): array {
             $diskName = $artifact->storage_disk ?: config('filesystems.default');
             $exists = filled($artifact->storage_path)
                 && Storage::disk($diskName)->exists($artifact->storage_path);
@@ -369,39 +441,59 @@ class DraftPackageRebuildService
                 'sha256' => $hash,
             ];
         })->values()->all();
-        $analysis = $package->analysis;
-        $guard = [
-            'head' => $head,
-            'package' => [
-                'id' => $package->id,
-                'analysis_id' => $package->analysis_id,
-                'updated_at' => $package->getRawOriginal('updated_at'),
-                'plan_hash' => $this->inputBuilder->hashPayload($package->plan),
-            ],
-            'analysis' => [
-                'id' => $analysis->id,
-                'document_id' => $analysis->document_id,
-                'user_id' => $analysis->user_id,
-                'status' => $analysis->status,
-                'updated_at' => $analysis->getRawOriginal('updated_at'),
-                'settings_hash' => $this->inputBuilder->hashPayload($analysis->settings ?? []),
-            ],
-            'amendments' => $analysis->amendments->sortBy('id')->map(fn ($amendment) => [
-                'id' => $amendment->id,
-                'updated_at' => $amendment->getRawOriginal('updated_at'),
-                'attributes_hash' => hash('sha256', json_encode(
-                    $amendment->getAttributes(),
-                    JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES | JSON_THROW_ON_ERROR,
-                )),
-            ])->values()->all(),
-            'artifact_ids' => $package->artifacts->sortBy('id')->pluck('id')->values()->all(),
-            'canonical_hashes' => $canonicalHashes,
-            'representation_ids' => $package->artifacts->whereNotNull('source_artifact_id')->sortBy('id')->pluck('id')->values()->all(),
-            'storage' => $storage,
-        ];
-        $guard['guard_hash'] = $this->inputBuilder->hashPayload($guard);
+    }
 
-        return $guard;
+    private function semanticPlanPayload(
+        DraftPackage $package,
+        string $head,
+        array $guard,
+        array $candidate,
+        array $predicted,
+    ): array {
+        $canonicalArtifacts = collect($candidate['canonical_artifact_ids'])
+            ->map(fn (int $id, string $type) => [
+                'artifact_type' => $type,
+                'artifact_id' => $id,
+                'content_hash' => $candidate['canonical_hashes'][$type],
+            ])
+            ->sortBy('artifact_type')
+            ->values()
+            ->all();
+        $representations = collect($predicted['representations'])
+            ->sortBy('artifact_type')
+            ->map(fn (array $representation) => [
+                'artifact_type' => $representation['artifact_type'],
+                'source_artifact_id' => $representation['source_artifact_id'],
+                'source_content_hash' => $representation['source_content_hash'],
+                'logical_content_hash' => $representation['logical_content_hash'],
+            ])
+            ->values()
+            ->all();
+
+        return [
+            'schema_version' => 'draft-package-rebuild-semantic-plan-v1',
+            'head' => $head,
+            'package' => $guard['package'],
+            'analysis' => $guard['analysis'],
+            'amendments' => $guard['amendments'],
+            'artifacts' => $guard['artifacts'],
+            'input_hash' => $candidate['input']['input_hash'],
+            'source_snapshots_hash' => $this->inputBuilder->hashPayload([
+                'source_snapshots' => $candidate['input']['source_snapshots'],
+            ]),
+            'amendment_snapshots_hash' => $this->inputBuilder->hashPayload([
+                'amendment_snapshots' => $candidate['input']['amendment_snapshots'],
+            ]),
+            'reused_justification_hashes' => $candidate['justification_hashes'],
+            'narrative_generation_hash' => $this->inputBuilder->hashPayload([
+                'narrative_generation' => data_get($package->plan, 'narrative_generation'),
+            ]),
+            'canonical_artifacts' => $canonicalArtifacts,
+            'renderer' => [
+                'version' => $predicted['renderer_version'],
+                'representations' => $representations,
+            ],
+        ];
     }
 
     private function canonicalHashes(DraftPackage $package): array
@@ -543,7 +635,10 @@ class DraftPackageRebuildService
             ];
         }
 
-        return ['renderer_version' => $renderer, 'representations' => $result];
+        return [
+            'renderer_version' => $renderer,
+            'representations' => collect($result)->sortBy('artifact_type')->values()->all(),
+        ];
     }
 
     private function postApplyVerification(int $packageId, array $preview, array $representations): array
@@ -634,10 +729,14 @@ class DraftPackageRebuildService
     {
         $package = DraftPackage::with([
             'analysis.document',
+            'analysis.sourceVersions' => fn ($query) => $query->orderBy('source_versions.id'),
             'analysis.sourceVersions.source',
+            'analysis.amendments' => fn ($query) => $query
+                ->orderBy('sort_order')
+                ->orderBy('id'),
             'analysis.amendments.source',
             'analysis.amendments.sourceVersion',
-            'artifacts',
+            'artifacts' => fn ($query) => $query->orderBy('id'),
         ])->findOrFail($packageId);
 
         if ($package->analysis->status !== 'completed') {

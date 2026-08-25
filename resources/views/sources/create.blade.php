@@ -1,5 +1,5 @@
 <x-layouts.app
-    title="Добавление НПА — AI DDU Assistant"
+    title="Добавление НПА — Правовой ИИ"
     heading="Добавление НПА"
     description="Добавьте нормативный акт и источник его текста"
 >

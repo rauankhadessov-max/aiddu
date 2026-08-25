@@ -14,7 +14,9 @@ class AuthUxTest extends TestCase
     {
         $this->get(route('login'))
             ->assertOk()
-            ->assertSee('AI DDU Assistant')
+            ->assertSee('Правовой ИИ')
+            ->assertSee('Анализ и подготовка НПА')
+            ->assertDontSee('AI DDU Assistant')
             ->assertSee('Вход в систему')
             ->assertSee('Электронная почта')
             ->assertSee('Пароль')

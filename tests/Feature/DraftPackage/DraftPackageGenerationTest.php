@@ -339,9 +339,10 @@ class DraftPackageGenerationTest extends TestCase
         $this->assertSame(2, substr_count($response->getContent(), 'data-logical-document='));
         $this->assertSame(2, substr_count($response->getContent(), 'Скачать DOCX'));
         $this->assertSame(2, substr_count($response->getContent(), 'class="analysis-docx-download"'));
-        $response->assertSee('.analysis-docx-download {', false)
-            ->assertSee('.analysis-docx-download:hover', false)
-            ->assertSee('.analysis-docx-download:focus-visible', false);
+        $css = file_get_contents(resource_path('css/app.css'));
+        $this->assertStringContainsString('.analysis-docx-download {', $css);
+        $this->assertStringContainsString('hover:border-indigo-800', $css);
+        $this->assertStringContainsString('focus-visible:ring-4', $css);
         foreach ($canonicalArtifacts as $artifact) {
             $response->assertSee(route('artifacts.show', $artifact), false);
             $response->assertSee(route('artifacts.docx.download', $artifact), false);

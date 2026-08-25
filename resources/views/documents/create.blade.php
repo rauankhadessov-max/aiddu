@@ -1,5 +1,5 @@
 <x-layouts.app
-    title="Новый документ — AI DDU Assistant"
+    title="Новый документ — Правовой ИИ"
     heading="Новый документ"
     :description="$workspace->title"
 >

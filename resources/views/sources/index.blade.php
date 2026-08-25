@@ -1,15 +1,15 @@
 <x-layouts.app
-    title="Нормативная база — AI DDU Assistant"
+    title="Нормативная база — Правовой ИИ"
     heading="Нормативная база"
     description="Выберите рабочее дело, нормативную базу которого нужно открыть"
 >
     <div class="space-y-6">
         @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
+            <x-ui.flash :message="session('success')" />
         @endif
 
         @if (session('error'))
-            <div class="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">{{ session('error') }}</div>
+            <x-ui.flash type="warning" :message="session('error')" />
         @endif
 
         <div>
@@ -18,7 +18,7 @@
         </div>
 
         @forelse ($workspaces as $workspace)
-            <article class="rounded-2xl border border-slate-200 bg-white p-6">
+            <article class="ui-card">
                 <div class="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
                     <div class="min-w-0">
                         <div class="flex flex-wrap items-center gap-3">

@@ -1,6 +1,7 @@
 <x-guest-layout>
     <div class="mb-7">
-        <div class="text-sm font-semibold text-blue-600">AI DDU Assistant</div>
+        <div class="text-sm font-semibold text-blue-600">Правовой ИИ</div>
+        <div class="mt-1 text-xs text-slate-500">Анализ и подготовка НПА</div>
         <h1 class="mt-2 text-2xl font-bold text-slate-900">Вход в систему</h1>
         <p class="mt-2 text-sm text-slate-500">Войдите, чтобы продолжить работу с юридическими материалами.</p>
     </div>

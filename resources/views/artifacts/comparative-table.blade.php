@@ -1,5 +1,5 @@
 <x-layouts.app
-    :title="$artifact->title . ' — AI DDU Assistant'"
+    :title="$artifact->title . ' — Правовой ИИ'"
     :heading="$artifact->title"
     :description="$artifact->draftPackage->analysis->title"
 >

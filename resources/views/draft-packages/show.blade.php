@@ -1,5 +1,5 @@
 <x-layouts.app
-    :title="$draftPackage->title . ' — AI DDU Assistant'"
+    :title="$draftPackage->title . ' — Правовой ИИ'"
     :heading="$draftPackage->title"
     :description="$draftPackage->analysis->title"
 >

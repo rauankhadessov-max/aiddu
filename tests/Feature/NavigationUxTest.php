@@ -10,6 +10,7 @@ use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use RecursiveDirectoryIterator;
 use RecursiveIteratorIterator;
 use Tests\TestCase;
@@ -24,6 +25,9 @@ class NavigationUxTest extends TestCase
         $this->actingAs($user)
             ->get(route('dashboard'))
             ->assertOk()
+            ->assertSee('Правовой ИИ')
+            ->assertSee('Анализ и подготовка НПА')
+            ->assertDontSee('AI DDU Assistant')
             ->assertSee(route('workspaces.index'), false)
             ->assertSee(route('analyses.workflow.create'), false)
             ->assertSee(route('sources.index'), false)
@@ -33,6 +37,28 @@ class NavigationUxTest extends TestCase
             ->assertSee('aria-disabled="true"', false)
             ->assertSee('Скоро')
             ->assertDontSee('href="#"', false);
+    }
+
+    public function test_branding_dashboard_and_responsive_navigation_use_the_legal_workspace_system(): void
+    {
+        Http::fake();
+        $user = User::factory()->create();
+
+        $response = $this->actingAs($user)->get(route('dashboard'));
+
+        $response->assertOk()
+            ->assertSee('Правовой ИИ')
+            ->assertSee('Анализ и подготовка НПА')
+            ->assertSee('app-sidebar', false)
+            ->assertSee('app-mobile-nav', false)
+            ->assertSee('Основные действия')
+            ->assertDontSee('Текущий этап разработки')
+            ->assertDontSee('Архитектура AI DDU Assistant')
+            ->assertDontSee('AI DDU Assistant');
+
+        $this->assertGreaterThanOrEqual(2, substr_count($response->getContent(), route('workspaces.index')));
+        $this->assertGreaterThanOrEqual(2, substr_count($response->getContent(), route('analyses.workflow.create')));
+        Http::assertNothingSent();
     }
 
     public function test_new_analysis_entry_point_opens_unified_form(): void
@@ -167,8 +193,8 @@ class NavigationUxTest extends TestCase
     {
         $view = file_get_contents(resource_path('views/workspaces/index.blade.php'));
 
-        $this->assertStringContainsString('flex-col items-start gap-4 sm:flex-row', $view);
-        $this->assertStringContainsString('w-full rounded-xl', $view);
+        $this->assertStringContainsString('flex justify-end', $view);
+        $this->assertStringContainsString('ui-btn-primary w-full', $view);
         $this->assertStringContainsString('sm:w-auto', $view);
         $this->assertStringContainsString('inline-flex shrink-0 whitespace-nowrap rounded-full', $view);
         $this->assertStringNotContainsString('absolute', $view);

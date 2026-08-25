@@ -20,7 +20,8 @@ class ProfileTest extends TestCase
 
         $response
             ->assertOk()
-            ->assertSee('AI DDU Assistant')
+            ->assertSee('Правовой ИИ')
+            ->assertDontSee('AI DDU Assistant')
             ->assertSee('Рабочие дела')
             ->assertSee('Настройки профиля')
             ->assertSee('Данные профиля')

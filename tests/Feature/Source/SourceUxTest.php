@@ -37,7 +37,8 @@ class SourceUxTest extends TestCase
         $this->actingAs($admin)
             ->get(route('workspaces.sources.create', $workspace))
             ->assertOk()
-            ->assertSee('AI DDU Assistant')
+            ->assertSee('Правовой ИИ')
+            ->assertDontSee('AI DDU Assistant')
             ->assertSee('Рабочие дела')
             ->assertSee('Добавление НПА')
             ->assertSee('Название НПА')
@@ -166,7 +167,7 @@ class SourceUxTest extends TestCase
     private function docxUpload(array $paragraphs): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'aiddu-docx-').'.docx';
-        $phpWord = new PhpWord();
+        $phpWord = new PhpWord;
         $section = $phpWord->addSection();
 
         foreach ($paragraphs as $paragraph) {

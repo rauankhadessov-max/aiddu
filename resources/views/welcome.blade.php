@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>AI DDU Assistant</title>
+    <title>Правовой ИИ</title>
 
     <style>
         * {
@@ -261,7 +261,7 @@
         <nav>
             <div class="logo">
                 <div class="logo-mark">AI</div>
-                <span>AI DDU Assistant</span>
+                <span>Правовой ИИ</span>
             </div>
 
             <a class="login-link" href="{{ route('login') }}">Войти</a>
@@ -402,7 +402,7 @@
 
 <footer>
     <div class="container">
-        © 2026 AI DDU Assistant · Интеллектуальная система правового анализа
+        © 2026 Правовой ИИ · Анализ и подготовка НПА
     </div>
 </footer>
 </body>

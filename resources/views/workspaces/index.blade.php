@@ -1,21 +1,14 @@
 <x-layouts.app
-    title="Рабочие дела — AI DDU Assistant"
+    title="Рабочие дела — Правовой ИИ"
     heading="Рабочие дела"
     description="Все рабочие дела по анализу и подготовке нормативных правовых актов"
 >
     <div class="space-y-6">
 
-        <div class="flex flex-col items-start gap-4 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-900">Рабочие дела</h2>
-                <p class="mt-1 text-sm text-slate-500">
-                    Создавайте отдельное рабочее дело для каждого вопроса или проекта НПА.
-                </p>
-            </div>
-
+        <div class="flex justify-end">
             <a
                 href="{{ route('workspaces.create') }}"
-                class="w-full rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white transition hover:bg-blue-500 sm:w-auto"
+                class="ui-btn-primary w-full sm:w-auto"
             >
                 + Новое рабочее дело
             </a>
@@ -31,15 +24,9 @@
         @endif
 
         @if ($workspaces->isEmpty())
-            <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-10 text-center">
-                <h3 class="text-lg font-semibold text-slate-900">
-                    Рабочих дел пока нет
-                </h3>
-
-                <p class="mt-2 text-sm text-slate-500">
-                    Создайте первое рабочее дело и начните анализ документа.
-                </p>
-            </div>
+            <x-ui.empty-state title="Рабочих дел пока нет" description="Создайте первое рабочее дело и начните анализ документа.">
+                <a href="{{ route('workspaces.create') }}" class="ui-btn-primary">Новое рабочее дело</a>
+            </x-ui.empty-state>
         @else
             <div class="grid gap-4">
                 @foreach ($workspaces as $workspace)

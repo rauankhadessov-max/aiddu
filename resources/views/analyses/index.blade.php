@@ -1,23 +1,19 @@
-<x-layouts.app title="История анализов — AI DDU Assistant" heading="История анализов" description="Сохранённые юридические анализы и черновики">
+<x-layouts.app title="История анализов — Правовой ИИ" heading="История анализов" description="Сохранённые юридические анализы и черновики">
     <div class="space-y-6">
         @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
+            <x-ui.flash :message="session('success')" />
         @endif
         @if (session('error'))
-            <div class="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">{{ session('error') }}</div>
+            <x-ui.flash type="error" :message="session('error')" />
         @endif
 
-        <div class="flex flex-wrap items-center justify-between gap-4">
-            <div>
-                <h2 class="text-2xl font-bold text-slate-900">Все анализы</h2>
-                <p class="mt-1 text-sm text-slate-500">Откройте результат или продолжите сохранённый черновик.</p>
-            </div>
-            <a href="{{ route('analyses.workflow.create') }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Новый анализ</a>
+        <div class="flex justify-end">
+            <a href="{{ route('analyses.workflow.create') }}" class="ui-btn-primary">+ Новый анализ</a>
         </div>
 
         <div class="space-y-4">
             @forelse ($analyses as $analysis)
-                <article class="rounded-2xl border border-slate-200 bg-white p-6">
+                <article class="ui-card">
                     <div class="flex flex-col justify-between gap-5 md:flex-row md:items-center">
                         <div class="min-w-0">
                             <h2 class="text-lg font-bold text-slate-900">{{ $analysis->title ?: 'Без названия' }}</h2>
@@ -69,10 +65,9 @@
                     </x-modal>
                 @endif
             @empty
-                <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
-                    <h2 class="text-lg font-bold text-slate-900">Анализов пока нет</h2>
-                    <p class="mt-2 text-sm text-slate-500">Создайте первый анализ в единой форме.</p>
-                </div>
+                <x-ui.empty-state title="Анализов пока нет" description="Создайте первый анализ в единой форме.">
+                    <a href="{{ route('analyses.workflow.create') }}" class="ui-btn-primary">Новый анализ</a>
+                </x-ui.empty-state>
             @endforelse
         </div>
     </div>

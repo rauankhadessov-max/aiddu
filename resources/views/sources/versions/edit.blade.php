@@ -1,5 +1,5 @@
 <x-layouts.app
-    title="Редактирование редакции — AI DDU Assistant"
+    title="Редактирование редакции — Правовой ИИ"
     heading="Редактирование редакции НПА"
     :description="$source->title"
 >

@@ -1,4 +1,4 @@
-<x-layouts.app :title="$workspace->title . ' — AI DDU Assistant'" :heading="$workspace->title" :description="$workspace->description">
+<x-layouts.app :title="$workspace->title . ' — Правовой ИИ'" :heading="$workspace->title" :description="$workspace->description">
     <div class="space-y-8">
         @if (session('success'))
             <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>

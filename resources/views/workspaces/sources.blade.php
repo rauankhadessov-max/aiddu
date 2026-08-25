@@ -4,7 +4,7 @@
 @endphp
 
 <x-layouts.app
-    :title="'Нормативная база — '.$workspace->title.' — AI DDU Assistant'"
+    :title="'Нормативная база — '.$workspace->title.' — Правовой ИИ'"
     heading="Нормативная база рабочего дела"
     :description="$workspace->title"
 >

@@ -185,7 +185,7 @@ class LegalDocumentFormatterTest extends TestCase
 
     public function test_print_styles_cover_landscape_portrait_and_navigation_hiding(): void
     {
-        $css = file_get_contents(resource_path('views/components/layouts/app.blade.php'));
+        $css = file_get_contents(resource_path('css/app.css'));
         $table = file_get_contents(resource_path('views/artifacts/comparative-table.blade.php'));
         $draft = file_get_contents(resource_path('views/artifacts/draft-npa.blade.php'));
 

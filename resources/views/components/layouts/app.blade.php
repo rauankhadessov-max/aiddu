@@ -6,89 +6,10 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>{{ $title ?? 'AI DDU Assistant' }}</title>
+    <title>{{ $title ?? 'Правовой ИИ' }}</title>
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 
-    <style>
-        .legal-text-block + .legal-text-block,
-        .legal-command-block + .legal-command-block { margin-top: 0.75rem; }
-        .legal-command-block--normative,
-        .legal-command-block--quotation_start,
-        .legal-command-block--norm_heading,
-        .legal-command-block--norm_item { padding-left: 1.5rem; }
-        .analysis-document-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 0.5rem; }
-        .analysis-artifact-open,
-        .analysis-docx-download {
-            display: inline-flex;
-            align-items: center;
-            justify-content: center;
-            border-radius: 0.5rem;
-            padding: 0.5rem 0.75rem;
-            font-size: 0.875rem;
-            line-height: 1.25rem;
-            font-weight: 600;
-            transition: background-color 150ms, border-color 150ms, color 150ms, box-shadow 150ms;
-        }
-        .analysis-artifact-open { border: 1px solid #a5b4fc; color: #4338ca; background: #fff; }
-        .analysis-artifact-open:hover { border-color: #6366f1; background: #eef2ff; }
-        .analysis-docx-download { border: 1px solid #4338ca; color: #fff !important; background: #4f46e5; }
-        .analysis-docx-download:hover { border-color: #3730a3; background: #4338ca; }
-        .analysis-artifact-open:focus-visible,
-        .analysis-docx-download:focus-visible {
-            outline: 3px solid rgba(99, 102, 241, 0.45);
-            outline-offset: 2px;
-        }
-
-        @media print {
-            html, body { background: #fff !important; color: #000 !important; }
-            .app-sidebar, .app-header, .app-mobile-nav, .print-controls { display: none !important; }
-            .app-shell, .app-main {
-                display: block !important;
-                min-height: 0 !important;
-                width: 100% !important;
-                padding: 0 !important;
-                margin: 0 !important;
-            }
-            .print-surface { border: 0 !important; border-radius: 0 !important; box-shadow: none !important; }
-            .comparative-table-wrap { overflow: visible !important; }
-            .comparative-table {
-                width: 100% !important;
-                min-width: 0 !important;
-                table-layout: fixed;
-                border-collapse: collapse;
-                font-size: 8.5pt;
-                line-height: 1.3;
-            }
-            .comparative-table thead { display: table-header-group; }
-            .comparative-table th, .comparative-table td {
-                min-width: 0 !important;
-                padding: 2.5mm !important;
-                border: 0.2mm solid #777 !important;
-                overflow-wrap: anywhere;
-                vertical-align: top;
-            }
-            .comparative-table th:nth-child(1) { width: 4%; }
-            .comparative-table th:nth-child(2) { width: 14%; }
-            .comparative-table th:nth-child(3) { width: 24%; }
-            .comparative-table th:nth-child(4) { width: 29%; }
-            .comparative-table th:nth-child(5) { width: 29%; }
-            .comparative-table tr { break-inside: avoid-page; }
-            .legal-document {
-                width: 100% !important;
-                max-width: none !important;
-                padding: 0 !important;
-                font-family: "Times New Roman", Times, serif;
-                font-size: 12pt;
-                line-height: 1.5;
-            }
-            .legal-project-mark, .legal-act-type, .legal-act-title, .legal-command-block {
-                orphans: 3;
-                widows: 3;
-            }
-            .legal-intro, .legal-command-block { text-align: justify; }
-        }
-    </style>
 </head>
 
 <body class="bg-slate-100 font-sans text-slate-900 antialiased">
@@ -99,14 +20,8 @@
     <aside class="app-sidebar hidden w-72 shrink-0 flex-col bg-slate-950 text-white lg:flex">
 
         <div class="border-b border-white/10 px-6 py-6">
-            <a href="{{ route('dashboard') }}" class="block">
-                <div class="text-xl font-bold">
-                    AI DDU Assistant
-                </div>
-
-                <div class="mt-1 text-xs text-slate-400">
-                    Правовой анализ НПА
-                </div>
+            <a href="{{ route('dashboard') }}" class="block rounded-xl focus-visible:outline-none focus-visible:ring-4 focus-visible:ring-blue-500/30">
+                <x-ui.brand dark />
             </a>
         </div>
 
@@ -250,7 +165,7 @@
 
                 <div>
                     <h1 class="text-xl font-bold text-slate-900">
-                        {{ $heading ?? 'AI DDU Assistant' }}
+                        {{ $heading ?? 'Правовой ИИ' }}
                     </h1>
 
                     @isset($description)

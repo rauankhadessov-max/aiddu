@@ -54,6 +54,7 @@ return [
         'presentation_version' => 'legal-html-v4',
         'docx_renderer_version' => 'legal-docx-v3',
         'docx_storage_disk' => 'local',
+        'maintenance_backup_root' => 'backups/draft-packages',
         'unknown_requirement_label' => 'Необходимо уточнить дополнительные данные для завершения проекта НПА',
         'requirement_labels' => [
             'effective_date_rule' => 'Необходимо определить порядок и срок введения НПА в действие',

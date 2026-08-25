@@ -117,6 +117,64 @@ class NavigationUxTest extends TestCase
         $this->assertSame(1, substr_count($response->getContent(), 'По умолчанию'));
     }
 
+    public function test_each_users_active_default_workspace_is_first_regardless_of_creation_date(): void
+    {
+        $profile = RegulatoryProfile::where('purpose', RegulatoryProfile::NEW_USER_DEFAULT)->sole();
+        $profile->update(['is_active' => true]);
+        $firstUser = User::factory()->create();
+        $secondUser = User::factory()->create();
+
+        $firstDefault = $this->workspaceFor($firstUser);
+        $firstDefault->update([
+            'title' => 'Default первого пользователя',
+            'regulatory_profile_id' => $profile->id,
+            'created_at' => now()->subDays(5),
+        ]);
+        $firstRecent = $this->workspaceFor($firstUser);
+        $firstRecent->update(['title' => 'Новое дело первого пользователя']);
+        $firstOlder = $this->workspaceFor($firstUser);
+        $firstOlder->update([
+            'title' => 'Предыдущее дело первого пользователя',
+            'created_at' => now()->subDay(),
+        ]);
+
+        $secondDefault = $this->workspaceFor($secondUser);
+        $secondDefault->update([
+            'title' => 'Default второго пользователя',
+            'regulatory_profile_id' => $profile->id,
+            'created_at' => now()->subDays(10),
+        ]);
+        $secondRecent = $this->workspaceFor($secondUser);
+        $secondRecent->update(['title' => 'Новое дело второго пользователя']);
+
+        $firstResponse = $this->actingAs($firstUser)->get(route('workspaces.index'));
+        $firstResponse->assertOk()
+            ->assertSeeInOrder([$firstDefault->title, $firstRecent->title, $firstOlder->title])
+            ->assertDontSee($secondDefault->title)
+            ->assertDontSee($secondRecent->title);
+
+        $secondResponse = $this->actingAs($secondUser)->get(route('workspaces.index'));
+        $secondResponse->assertOk()
+            ->assertSeeInOrder([$secondDefault->title, $secondRecent->title])
+            ->assertDontSee($firstDefault->title)
+            ->assertDontSee($firstRecent->title);
+
+        $this->assertSame(1, substr_count($firstResponse->getContent(), 'По умолчанию'));
+        $this->assertSame(1, substr_count($secondResponse->getContent(), 'По умолчанию'));
+    }
+
+    public function test_workspace_index_uses_compact_badge_and_responsive_layout_without_decoration(): void
+    {
+        $view = file_get_contents(resource_path('views/workspaces/index.blade.php'));
+
+        $this->assertStringContainsString('flex-col items-start gap-4 sm:flex-row', $view);
+        $this->assertStringContainsString('w-full rounded-xl', $view);
+        $this->assertStringContainsString('sm:w-auto', $view);
+        $this->assertStringContainsString('inline-flex shrink-0 whitespace-nowrap rounded-full', $view);
+        $this->assertStringNotContainsString('absolute', $view);
+        $this->assertStringNotContainsString('workspace-card-decoration', $view);
+    }
+
     public function test_document_page_lists_instruction_and_existing_analyses(): void
     {
         $owner = User::factory()->create();
@@ -182,7 +240,7 @@ class NavigationUxTest extends TestCase
         $checkedFiles = 0;
 
         foreach ($files as $file) {
-            if (!$file->isFile() || $file->getExtension() !== 'php') {
+            if (! $file->isFile() || $file->getExtension() !== 'php') {
                 continue;
             }
 

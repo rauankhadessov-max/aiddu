@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\RegulatoryProfile;
 use App\Models\Workspace;
+use App\Services\WorkspaceSourceVersionResolver;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Support\Str;
-use App\Services\WorkspaceSourceVersionResolver;
 
 class WorkspaceController extends Controller
 {
@@ -15,6 +16,16 @@ class WorkspaceController extends Controller
         $workspaces = $request->user()
             ->workspaces()
             ->with('regulatoryProfile')
+            ->orderByRaw(
+                'CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM regulatory_profiles
+                    WHERE regulatory_profiles.id = workspaces.regulatory_profile_id
+                      AND regulatory_profiles.is_active = ?
+                      AND regulatory_profiles.purpose = ?
+                ) THEN 0 ELSE 1 END',
+                [true, RegulatoryProfile::NEW_USER_DEFAULT],
+            )
             ->latest()
             ->get();
 

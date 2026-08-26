@@ -52,9 +52,11 @@ class AuthUxTest extends TestCase
             ->assertDontSee('This is a secure area');
     }
 
-    public function test_registration_remains_disabled(): void
+    public function test_login_links_to_branded_registration(): void
     {
-        $this->get('/register')->assertNotFound();
-        $this->post('/register')->assertNotFound();
+        $this->get('/login')
+            ->assertOk()
+            ->assertSee(route('register'), false)
+            ->assertSee('Зарегистрироваться');
     }
 }

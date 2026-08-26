@@ -4,18 +4,22 @@ namespace App\Providers;
 
 use App\Models\Analysis;
 use App\Models\Document;
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Models\SourceVersion;
-use App\Models\RegulatoryProfile;
 use App\Models\Workspace;
 use App\Policies\AnalysisPolicy;
 use App\Policies\DocumentPolicy;
+use App\Policies\RegulatoryProfilePolicy;
 use App\Policies\SourcePolicy;
 use App\Policies\SourceVersionPolicy;
-use App\Policies\RegulatoryProfilePolicy;
 use App\Policies\WorkspacePolicy;
+use Illuminate\Cache\RateLimiting\Limit;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Gate;
+use Illuminate\Support\Facades\RateLimiter;
 use Illuminate\Support\ServiceProvider;
+use Illuminate\Support\Str;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -32,6 +36,12 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        RateLimiter::for('registration', function (Request $request) {
+            $identity = Str::lower((string) $request->input('email')).'|'.$request->ip();
+
+            return Limit::perMinute(5)->by(hash('sha256', $identity));
+        });
+
         Gate::policy(Workspace::class, WorkspacePolicy::class);
         Gate::policy(Document::class, DocumentPolicy::class);
         Gate::policy(Analysis::class, AnalysisPolicy::class);

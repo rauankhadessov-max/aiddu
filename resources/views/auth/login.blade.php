@@ -31,4 +31,11 @@
             <x-primary-button>Войти</x-primary-button>
         </div>
     </form>
+
+    @if (Route::has('register'))
+        <p class="mt-6 border-t border-slate-200 pt-5 text-center text-sm text-slate-600">
+            Нет аккаунта?
+            <a href="{{ route('register') }}" class="font-semibold text-blue-600 hover:text-blue-700">Зарегистрироваться</a>
+        </p>
+    @endif
 </x-guest-layout>

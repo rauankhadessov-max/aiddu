@@ -3,42 +3,65 @@
     heading="Нормативная база"
     description="Выберите рабочее дело, нормативную базу которого нужно открыть"
 >
-    <div class="space-y-6">
+    <div class="space-y-5">
         @if (session('success'))
             <x-ui.flash :message="session('success')" />
         @endif
-
         @if (session('error'))
             <x-ui.flash type="warning" :message="session('error')" />
         @endif
 
-        <div>
-            <h2 class="text-2xl font-bold text-slate-900">Рабочие дела</h2>
-            <p class="mt-1 text-sm text-slate-500">Нормативная база формируется отдельно для каждого рабочего дела.</p>
-        </div>
+        <p class="text-sm leading-6 text-slate-600">Состав нормативной базы настраивается отдельно для каждого рабочего дела.</p>
 
         @forelse ($workspaces as $workspace)
-            <article class="ui-card">
-                <div class="flex flex-col justify-between gap-5 sm:flex-row sm:items-center">
+            @php
+                $isDefault = $workspace->regulatoryProfile?->is_active
+                    && $workspace->regulatoryProfile->purpose === App\Models\RegulatoryProfile::NEW_USER_DEFAULT;
+                $primarySource = $workspace->sources->first(fn ($source) => (bool) $source->pivot->is_primary);
+                $previewSources = $workspace->sources->take(4);
+                $remainingSources = max(0, $workspace->sources_count - $previewSources->count());
+            @endphp
+
+            <article class="ui-card p-5 sm:p-6" data-regulatory-workspace-card>
+                <div class="grid gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,0.7fr)_auto] lg:items-center">
                     <div class="min-w-0">
-                        <div class="flex flex-wrap items-center gap-3">
-                            <h3 class="text-lg font-bold text-slate-900">{{ $workspace->title }}</h3>
-                            @if ($workspace->regulatoryProfile?->is_active && $workspace->regulatoryProfile->purpose === App\Models\RegulatoryProfile::NEW_USER_DEFAULT)
-                                <span class="rounded-full bg-blue-50 px-3 py-1 text-xs font-semibold text-blue-700">По умолчанию</span>
+                        <div class="flex flex-wrap items-center gap-2">
+                            <h2 class="text-lg font-bold text-slate-950">{{ $workspace->title }}</h2>
+                            @if ($isDefault)
+                                <span class="ui-badge-default">По умолчанию</span>
                             @endif
                         </div>
-                        <p class="mt-2 text-sm text-slate-500">Подключено НПА: <span class="font-semibold text-slate-700">{{ $workspace->sources_count }}</span></p>
+                        <div class="mt-3 flex flex-wrap gap-x-5 gap-y-2 text-sm text-slate-500">
+                            <span>Подключено НПА: <strong class="text-slate-800">{{ $workspace->sources_count }}</strong></span>
+                            <span>Обновлено: <strong class="text-slate-800">{{ $workspace->updated_at?->format('d.m.Y') }}</strong></span>
+                        </div>
+                        @if ($primarySource)
+                            <p class="mt-3 text-sm text-slate-600"><span class="font-semibold text-slate-800">Основной НПА:</span> {{ $primarySource->title }}</p>
+                        @endif
                     </div>
 
-                    <a href="{{ route('workspaces.sources', $workspace) }}" class="shrink-0 rounded-xl bg-blue-600 px-5 py-3 text-center text-sm font-semibold text-white hover:bg-blue-500">Открыть нормативную базу</a>
+                    <div class="border-t border-slate-100 pt-4 lg:border-l lg:border-t-0 lg:py-1 lg:pl-5">
+                        @if ($previewSources->isEmpty())
+                            <p class="text-sm text-slate-500">НПА пока не подключены.</p>
+                        @else
+                            <ul class="space-y-1.5 text-sm text-slate-600">
+                                @foreach ($previewSources as $source)
+                                    <li class="truncate">{{ $source->title }}</li>
+                                @endforeach
+                            </ul>
+                            @if ($remainingSources > 0)
+                                <div class="mt-2 text-sm font-semibold text-blue-700">+ ещё {{ $remainingSources }}</div>
+                            @endif
+                        @endif
+                    </div>
+
+                    <a href="{{ route('workspaces.sources', $workspace) }}" class="ui-btn-secondary w-full whitespace-nowrap lg:w-auto">Открыть базу</a>
                 </div>
             </article>
         @empty
-            <div class="rounded-2xl border border-dashed border-slate-300 bg-white p-8">
-                <h3 class="font-bold text-slate-900">Рабочих дел пока нет</h3>
-                <p class="mt-2 text-sm text-slate-500">Создайте рабочее дело, чтобы сформировать его нормативную базу.</p>
-                <a href="{{ route('workspaces.create') }}" class="mt-4 inline-flex rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white">Создать рабочее дело</a>
-            </div>
+            <x-ui.empty-state title="Рабочих дел пока нет" description="Создайте рабочее дело, чтобы сформировать его нормативную базу.">
+                <a href="{{ route('workspaces.create') }}" class="ui-btn-primary">Создать рабочее дело</a>
+            </x-ui.empty-state>
         @endforelse
     </div>
 </x-layouts.app>

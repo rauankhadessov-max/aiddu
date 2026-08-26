@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\RegulatoryProfile;
 use App\Models\Source;
 use App\Services\SourceVersionContentService;
 use Illuminate\Http\Request;
@@ -14,10 +15,26 @@ class SourceController extends Controller
     {
         $workspaces = $request->user()
             ->workspaces()
-            ->with('regulatoryProfile')
+            ->with([
+                'regulatoryProfile',
+                'sources' => fn ($query) => $query
+                    ->visibleTo($request->user())
+                    ->orderByDesc('workspace_sources.is_primary')
+                    ->orderBy('sources.title'),
+            ])
             ->withCount([
                 'sources as sources_count' => fn ($query) => $query->visibleTo($request->user()),
             ])
+            ->orderByRaw(
+                'CASE WHEN EXISTS (
+                    SELECT 1
+                    FROM regulatory_profiles
+                    WHERE regulatory_profiles.id = workspaces.regulatory_profile_id
+                      AND regulatory_profiles.is_active = ?
+                      AND regulatory_profiles.purpose = ?
+                ) THEN 0 ELSE 1 END',
+                [true, RegulatoryProfile::NEW_USER_DEFAULT],
+            )
             ->latest()
             ->get();
 

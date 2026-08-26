@@ -10,6 +10,7 @@ use App\Models\Workspace;
 use App\Services\DefaultWorkspaceProvisioner;
 use App\Services\RegulatoryProfileWorkspaceSynchronizer;
 use App\Services\WorkspaceSourceVersionResolver;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\UploadedFile;
 use Illuminate\Support\Facades\Http;
@@ -51,6 +52,39 @@ class WorkspaceRegulatoryBaseTest extends TestCase
             ->assertDontSee('draft');
     }
 
+    public function test_regulatory_base_lists_default_workspace_first_with_real_compact_source_data(): void
+    {
+        $user = User::factory()->create();
+        $profile = $this->profile();
+        $default = $this->workspace($user, 'Профильное рабочее дело', $profile);
+        $default->update(['created_at' => now()->subWeek()]);
+        $ordinary = $this->workspace($user, 'Новое обычное дело');
+
+        $sources = collect([
+            $this->source('Основной закон'),
+            $this->source('Гражданский кодекс', null, 'code'),
+            $this->source('Строительный кодекс', null, 'code'),
+            $this->source('Правила финансирования', null, 'rules'),
+            $this->source('Методика расчёта', null, 'methodology'),
+        ]);
+        foreach ($sources as $source) {
+            $default->sources()->attach($source, ['is_primary' => $source->title === 'Основной закон']);
+        }
+
+        $response = $this->actingAs($user)->get(route('sources.index'));
+
+        $response->assertOk()
+            ->assertSeeInOrder([$default->title, $ordinary->title])
+            ->assertSee('Подключено НПА:')
+            ->assertSee('Основной НПА:')
+            ->assertSee('Основной закон')
+            ->assertSee('+ ещё 1')
+            ->assertSee('data-regulatory-workspace-card', false)
+            ->assertDontSee($default->reference_number)
+            ->assertDontSee('Актуален');
+        Http::assertNothingSent();
+    }
+
     public function test_workspace_page_groups_only_global_and_owned_personal_sources(): void
     {
         $user = User::factory()->create();
@@ -58,9 +92,12 @@ class WorkspaceRegulatoryBaseTest extends TestCase
         $workspace = $this->workspace($user, 'Рабочее дело');
         $global = $this->source('Глобальный закон');
         $own = $this->source('Мой приказ', $user, 'order');
+        $urlOnly = $this->source('НПА только со ссылкой', $user, 'rules');
+        $urlOnly->update(['official_url' => 'https://example.test/rules']);
         $foreign = $this->source('Чужой НПА', $other);
         $globalVersion = $this->version($global, 'Действующая редакция');
-        $workspace->sources()->attach([$global->id, $own->id, $foreign->id]);
+        $workspace->sources()->attach($global->id, ['is_primary' => true]);
+        $workspace->sources()->attach([$own->id, $urlOnly->id, $foreign->id]);
 
         $this->actingAs($user)->get(route('workspaces.sources', $workspace))
             ->assertOk()
@@ -68,13 +105,61 @@ class WorkspaceRegulatoryBaseTest extends TestCase
             ->assertSee('Мои НПА')
             ->assertSee($global->title)
             ->assertSee($own->title)
+            ->assertSee($urlOnly->title)
             ->assertSee($globalVersion->version_name)
             ->assertSee('Закон')
             ->assertSee('Приказ')
+            ->assertSee('Документ')
+            ->assertSee('Редакция')
+            ->assertSee('Роль')
+            ->assertSee('Основной')
+            ->assertSee('Дополнительный')
+            ->assertSee('Нормативный текст ещё не добавлен')
+            ->assertSee('data-regulatory-table', false)
             ->assertDontSee($foreign->title)
             ->assertSee('+ Добавить НПА')
             ->assertDontSee('active')
             ->assertDontSee('law');
+    }
+
+    public function test_workspace_and_regulatory_base_presentations_do_not_lazy_load_relations(): void
+    {
+        $user = User::factory()->create();
+        $profile = $this->profile();
+        $workspace = $this->workspace($user, 'Профильное рабочее дело', $profile);
+        $source = $this->source('Закон для проверки загрузки');
+        $this->version($source, 'Редакция для проверки');
+        $workspace->sources()->attach($source, ['is_primary' => true]);
+
+        Model::preventLazyLoading();
+
+        try {
+            $this->actingAs($user)->get(route('workspaces.index'))->assertOk();
+            $this->actingAs($user)->get(route('sources.index'))->assertOk();
+            $this->actingAs($user)->get(route('workspaces.show', $workspace))->assertOk();
+            $this->actingAs($user)->get(route('workspaces.sources', $workspace))->assertOk();
+        } finally {
+            Model::preventLazyLoading(false);
+        }
+
+        Http::assertNothingSent();
+    }
+
+    public function test_workspace_and_regulatory_base_layouts_have_mobile_safe_controls_and_tables(): void
+    {
+        $workspaceIndex = file_get_contents(resource_path('views/workspaces/index.blade.php'));
+        $sourceIndex = file_get_contents(resource_path('views/sources/index.blade.php'));
+        $workspaceSources = file_get_contents(resource_path('views/workspaces/sources.blade.php'));
+        $workspaceShow = file_get_contents(resource_path('views/workspaces/show.blade.php'));
+
+        $this->assertStringContainsString('w-full sm:w-auto', $workspaceIndex);
+        $this->assertStringContainsString('lg:flex-row', $workspaceIndex);
+        $this->assertStringContainsString('lg:grid-cols-', $sourceIndex);
+        $this->assertStringContainsString('w-full whitespace-nowrap lg:w-auto', $sourceIndex);
+        $this->assertStringContainsString('overflow-x-auto', $workspaceSources);
+        $this->assertStringContainsString('min-w-[820px]', $workspaceSources);
+        $this->assertStringContainsString('overflow-x-auto', $workspaceShow);
+        $this->assertStringContainsString('min-w-[680px]', $workspaceShow);
     }
 
     public function test_admin_visibility_defaults_follow_active_default_profile_relation_only(): void
@@ -222,7 +307,7 @@ class WorkspaceRegulatoryBaseTest extends TestCase
     private function docxUpload(array $paragraphs): UploadedFile
     {
         $path = tempnam(sys_get_temp_dir(), 'aiddu-regbase-').'.docx';
-        $phpWord = new PhpWord();
+        $phpWord = new PhpWord;
         $section = $phpWord->addSection();
 
         foreach ($paragraphs as $paragraph) {

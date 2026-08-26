@@ -4,10 +4,10 @@
     :description="$source->title"
 >
 
-    <div class="py-8">
-        <div class="mx-auto max-w-5xl px-4 sm:px-6 lg:px-8">
+    <div>
+        <div class="mx-auto max-w-5xl">
 
-            <div class="rounded-2xl border border-slate-200 bg-white p-6">
+            <div class="ui-card">
 
                 <form
                     method="POST"
@@ -29,7 +29,7 @@
                             name="version_name"
                             value="{{ old('version_name', $version->version_name) }}"
                             required
-                            class="mt-2 w-full rounded-xl border-slate-300"
+                            class="ui-input mt-2"
                         >
                     </div>
 
@@ -42,7 +42,7 @@
                             type="date"
                             name="effective_date"
                             value="{{ old('effective_date', optional($version->effective_date)->format('Y-m-d')) }}"
-                            class="mt-2 w-full rounded-xl border-slate-300"
+                            class="ui-input mt-2"
                         >
                     </div>
 
@@ -78,7 +78,7 @@
                         <textarea
                             name="text"
                             rows="30"
-                            class="mt-3 w-full rounded-xl border-slate-300 font-mono text-sm leading-6"
+                            class="ui-input mt-3 font-mono leading-6"
                         >{{ old('text', $version->text) }}</textarea>
                     </div>
 
@@ -86,14 +86,14 @@
 
                         <button
                             type="submit"
-                            class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500"
+                            class="ui-btn-primary"
                         >
                             Сохранить изменения
                         </button>
 
                         <a
                             href="{{ route('sources.show', $source) }}"
-                            class="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700"
+                            class="ui-btn-secondary"
                         >
                             Отмена
                         </a>

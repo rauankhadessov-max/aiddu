@@ -3,6 +3,7 @@
 namespace App\Http\Controllers;
 
 use App\Models\RegulatoryProfile;
+use App\Models\Source;
 use App\Models\Workspace;
 use App\Services\WorkspaceSourceVersionResolver;
 use Illuminate\Http\Request;
@@ -15,7 +16,17 @@ class WorkspaceController extends Controller
     {
         $workspaces = $request->user()
             ->workspaces()
-            ->with('regulatoryProfile')
+            ->with([
+                'regulatoryProfile',
+                'sources' => fn ($query) => $query
+                    ->visibleTo($request->user())
+                    ->orderByDesc('workspace_sources.is_primary')
+                    ->orderBy('sources.title'),
+            ])
+            ->withCount([
+                'analyses',
+                'sources as sources_count' => fn ($query) => $query->visibleTo($request->user()),
+            ])
             ->orderByRaw(
                 'CASE WHEN EXISTS (
                     SELECT 1
@@ -47,7 +58,7 @@ class WorkspaceController extends Controller
 
         $workspace = Workspace::create([
             'user_id' => $request->user()->id,
-            'reference_number' => 'WS-' . now()->format('Ymd') . '-' . strtoupper(Str::random(6)),
+            'reference_number' => 'WS-'.now()->format('Ymd').'-'.strtoupper(Str::random(6)),
             'title' => $validated['title'],
             'description' => $validated['description'] ?? null,
             'category' => $validated['category'],
@@ -64,7 +75,12 @@ class WorkspaceController extends Controller
         Gate::authorize('view', $workspace);
 
         $workspace->load([
+            'regulatoryProfile',
             'documents' => fn ($query) => $query->latest(),
+            'sources' => fn ($query) => $query
+                ->visibleTo($request->user())
+                ->orderByDesc('workspace_sources.is_primary')
+                ->orderBy('sources.title'),
             'sources.versions',
             'analyses' => fn ($query) => $query->latest(),
         ]);
@@ -72,33 +88,33 @@ class WorkspaceController extends Controller
         return view('workspaces.show', compact('workspace'));
     }
 
-public function sources(Workspace $workspace, WorkspaceSourceVersionResolver $sourceVersionResolver)
-{
-    Gate::authorize('view', $workspace);
+    public function sources(Workspace $workspace, WorkspaceSourceVersionResolver $sourceVersionResolver)
+    {
+        Gate::authorize('view', $workspace);
 
-    $workspace->load([
-        'regulatoryProfile',
-        'sources' => fn ($query) => $query
-            ->visibleTo(request()->user())
-            ->orderBy('title'),
-    ]);
-    $currentVersions = $sourceVersionResolver
-        ->currentVersions(request()->user(), $workspace)
-        ->keyBy('source_id');
+        $workspace->load([
+            'regulatoryProfile',
+            'sources' => fn ($query) => $query
+                ->visibleTo(request()->user())
+                ->orderByDesc('workspace_sources.is_primary')
+                ->orderBy('sources.title'),
+        ]);
+        $currentVersions = $sourceVersionResolver
+            ->currentVersions(request()->user(), $workspace)
+            ->keyBy('source_id');
 
-    return view('workspaces.sources', compact('workspace', 'currentVersions'));
-}
+        return view('workspaces.sources', compact('workspace', 'currentVersions'));
+    }
 
-public function attachSource(Workspace $workspace, \App\Models\Source $source)
-{
-    Gate::authorize('update', $workspace);
-    Gate::authorize('view', $source);
+    public function attachSource(Workspace $workspace, Source $source)
+    {
+        Gate::authorize('update', $workspace);
+        Gate::authorize('view', $source);
 
-    $workspace->sources()->syncWithoutDetaching([$source->id]);
+        $workspace->sources()->syncWithoutDetaching([$source->id]);
 
-    return redirect()
-        ->route('workspaces.show', $workspace)
-        ->with('success', 'Источник подключен к рабочему делу.');
-}
-
+        return redirect()
+            ->route('workspaces.show', $workspace)
+            ->with('success', 'Источник подключен к рабочему делу.');
+    }
 }

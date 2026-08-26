@@ -101,7 +101,7 @@ class NavigationUxTest extends TestCase
         $workspace = $this->workspaceFor($owner);
         $document = $this->documentFor($owner, $workspace);
         [$source] = $this->sourceWithVersion();
-        $workspace->sources()->attach($source->id);
+        $workspace->sources()->attach($source->id, ['is_primary' => true]);
 
         $analysis = Analysis::create([
             'workspace_id' => $workspace->id,
@@ -122,6 +122,12 @@ class NavigationUxTest extends TestCase
             ->assertDontSee(route('documents.show', $document), false)
             ->assertDontSee($document->document_type)
             ->assertSee($source->title)
+            ->assertSee('Основной НПА')
+            ->assertSee('Анализов:')
+            ->assertSee('Подключено НПА:')
+            ->assertSee('Название')
+            ->assertSee('Дата')
+            ->assertSee('Статус')
             ->assertDontSee('1 редакций')
             ->assertSee(route('workspaces.sources', $workspace), false);
     }
@@ -138,7 +144,11 @@ class NavigationUxTest extends TestCase
 
         $response->assertOk()
             ->assertDontSee('draft')
+            ->assertDontSee($defaultWorkspace->reference_number)
             ->assertSee('По умолчанию')
+            ->assertSee('Анализов')
+            ->assertSee('Подключено НПА')
+            ->assertSee('Обновлено')
             ->assertSee('Обычное рабочее дело');
         $this->assertSame(1, substr_count($response->getContent(), 'По умолчанию'));
     }
@@ -193,10 +203,11 @@ class NavigationUxTest extends TestCase
     {
         $view = file_get_contents(resource_path('views/workspaces/index.blade.php'));
 
-        $this->assertStringContainsString('flex justify-end', $view);
+        $this->assertStringContainsString('data-workspace-card', $view);
         $this->assertStringContainsString('ui-btn-primary w-full', $view);
         $this->assertStringContainsString('sm:w-auto', $view);
-        $this->assertStringContainsString('inline-flex shrink-0 whitespace-nowrap rounded-full', $view);
+        $this->assertStringContainsString('lg:flex-row', $view);
+        $this->assertStringContainsString('ui-badge-default', $view);
         $this->assertStringNotContainsString('absolute', $view);
         $this->assertStringNotContainsString('workspace-card-decoration', $view);
     }

@@ -8,7 +8,7 @@
         <form
             method="POST"
             action="{{ route('workspaces.store') }}"
-            class="space-y-6 rounded-2xl border border-slate-200 bg-white p-6"
+            class="ui-card space-y-6"
         >
             @csrf
 
@@ -21,7 +21,7 @@
                     type="text"
                     name="title"
                     value="{{ old('title') }}"
-                    class="mt-2 w-full rounded-xl border-slate-300"
+                    class="ui-input mt-2"
                     placeholder="Например: Изменения в Правила №151"
                     required
                 >
@@ -39,7 +39,7 @@
                 <textarea
                     name="description"
                     rows="5"
-                    class="mt-2 w-full rounded-xl border-slate-300"
+                    class="ui-input mt-2"
                     placeholder="Кратко опишите задачу рабочего дела"
                 >{{ old('description') }}</textarea>
             </div>
@@ -51,7 +51,7 @@
 
                 <select
                     name="category"
-                    class="mt-2 w-full rounded-xl border-slate-300"
+                    class="ui-input mt-2"
                     required
                 >
                     <option value="shared_construction">Долевое строительство</option>
@@ -65,14 +65,14 @@
             <div class="flex items-center gap-3">
                 <button
                     type="submit"
-                    class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white transition hover:bg-blue-500"
+                    class="ui-btn-primary"
                 >
                     Создать рабочее дело
                 </button>
 
                 <a
                     href="{{ route('workspaces.index') }}"
-                    class="rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700"
+                    class="ui-btn-secondary"
                 >
                     Отмена
                 </a>

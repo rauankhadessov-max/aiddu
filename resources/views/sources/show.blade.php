@@ -5,10 +5,10 @@
 >
     <div class="space-y-6">
         @if (session('success'))
-            <div class="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700">{{ session('success') }}</div>
+            <x-ui.flash :message="session('success')" />
         @endif
 
-        <section class="rounded-2xl border border-slate-200 bg-white p-6">
+        <section class="ui-card">
             <div class="text-xs font-semibold uppercase tracking-wide text-slate-500">Вид НПА</div>
             <div class="mt-2 font-semibold text-slate-900">{{ $source->typeLabel() }}</div>
 
@@ -32,13 +32,13 @@
                     <p class="mt-1 text-sm text-slate-500">Только сохранённые редакции могут использоваться в юридическом анализе.</p>
                 </div>
                 @can('update', $source)
-                    <a href="{{ route('source-versions.create', $source) }}" class="rounded-xl bg-blue-600 px-5 py-3 text-sm font-semibold text-white hover:bg-blue-500">+ Добавить редакцию</a>
+                    <a href="{{ route('source-versions.create', $source) }}" class="ui-btn-primary">+ Добавить редакцию</a>
                 @endcan
             </div>
 
             <div class="mt-5 space-y-4">
                 @forelse ($source->versions as $version)
-                    <article class="rounded-2xl border border-slate-200 bg-white p-6">
+                    <article class="ui-card-compact">
                         <div class="flex flex-col justify-between gap-4 sm:flex-row sm:items-start">
                             <div>
                                 <h3 class="font-bold text-slate-900">{{ $version->version_name }}</h3>
@@ -60,13 +60,13 @@
         </section>
 
         <div class="flex flex-wrap items-center justify-between gap-4">
-            <a href="{{ $workspaceContext ? route('workspaces.sources', $workspaceContext) : route('sources.index') }}" class="inline-flex rounded-xl border border-slate-300 px-5 py-3 text-sm font-semibold text-slate-700">← Нормативная база</a>
+            <a href="{{ $workspaceContext ? route('workspaces.sources', $workspaceContext) : route('sources.index') }}" class="ui-btn-secondary">← Нормативная база</a>
 
             @can('delete', $source)
                 <form method="POST" action="{{ route('sources.destroy', $source) }}" onsubmit="return confirm('Удалить НПА из доступной нормативной базы? Исторические анализы сохранятся.');">
                     @csrf
                     @method('DELETE')
-                    <button type="submit" class="rounded-xl border border-red-200 px-5 py-3 text-sm font-semibold text-red-700 hover:bg-red-50">Удалить НПА</button>
+                    <button type="submit" class="ui-btn-danger">Удалить НПА</button>
                 </form>
             @endcan
         </div>

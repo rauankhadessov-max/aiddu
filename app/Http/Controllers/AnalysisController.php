@@ -5,10 +5,10 @@ namespace App\Http\Controllers;
 use App\Models\Analysis;
 use App\Models\Document;
 use App\Presenters\AnalysisResultPresenter;
-use Illuminate\Http\Request;
-use App\Services\AnalysisExecutionService;
 use App\Services\AnalysisDeletionService;
+use App\Services\AnalysisExecutionService;
 use App\Services\WorkspaceSourceVersionResolver;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Gate;
 use Illuminate\Validation\ValidationException;
@@ -20,8 +20,7 @@ class AnalysisController extends Controller
         Request $request,
         Document $document,
         WorkspaceSourceVersionResolver $sourceVersionResolver,
-    )
-    {
+    ) {
         Gate::authorize('createAnalysis', $document);
 
         if (blank($document->analysis_instruction)) {
@@ -46,8 +45,7 @@ class AnalysisController extends Controller
         Request $request,
         Document $document,
         WorkspaceSourceVersionResolver $sourceVersionResolver,
-    )
-    {
+    ) {
         Gate::authorize('createAnalysis', $document);
 
         if (blank($document->analysis_instruction)) {
@@ -115,71 +113,116 @@ class AnalysisController extends Controller
         return view('analyses.show', compact('analysis', 'resultPresenter'));
     }
 
-public function run(
-    Request $request,
-    Analysis $analysis,
-    AnalysisExecutionService $analysisExecutionService
-)
-{
-    Gate::authorize('run', $analysis);
+    public function run(
+        Request $request,
+        Analysis $analysis,
+        AnalysisExecutionService $analysisExecutionService
+    ) {
+        Gate::authorize('run', $analysis);
 
-    if (!$analysis->document_id) {
-        return back()->with('error', 'Для анализа не выбран документ.');
-    }
-
-    if ($analysis->sourceVersions()->count() === 0) {
-        return back()->with('error', 'Для анализа необходимо выбрать хотя бы один нормативный источник.');
-    }
-
-    try {
-        if (!$analysisExecutionService->execute($analysis)) {
-            return redirect()
-                ->route('analyses.show', $analysis)
-                ->with('error', 'Не удалось подтвердить нормативные ссылки в результате анализа.');
+        if (! $analysis->document_id) {
+            return back()->with('error', 'Для анализа не выбран документ.');
         }
 
-        return redirect()
-            ->route('analyses.show', $analysis)
-            ->with('success', 'Юридический анализ успешно выполнен.');
+        if ($analysis->sourceVersions()->count() === 0) {
+            return back()->with('error', 'Для анализа необходимо выбрать хотя бы один нормативный источник.');
+        }
 
-    } catch (Throwable $e) {
+        try {
+            if (! $analysisExecutionService->execute($analysis)) {
+                return redirect()
+                    ->route('analyses.show', $analysis)
+                    ->with('error', 'Не удалось подтвердить нормативные ссылки в результате анализа.');
+            }
 
-        report($e);
+            return redirect()
+                ->route('analyses.show', $analysis)
+                ->with('success', 'Юридический анализ успешно выполнен.');
 
-        return redirect()
-            ->route('analyses.show', $analysis)
-            ->with('error', 'Не удалось выполнить анализ. Попробуйте повторить позже или обратитесь к администратору.');
+        } catch (Throwable $e) {
+
+            report($e);
+
+            return redirect()
+                ->route('analyses.show', $analysis)
+                ->with('error', 'Не удалось выполнить анализ. Попробуйте повторить позже или обратитесь к администратору.');
+        }
     }
-}
 
+    public function index(Request $request)
+    {
+        $filters = $request->validate([
+            'search' => ['nullable', 'string', 'max:150'],
+            'workspace' => ['nullable', 'integer', 'min:1'],
+            'status' => ['nullable', 'in:draft,processing,completed,failed'],
+        ]);
 
-public function index(Request $request)
-{
-    $analyses = Analysis::with(['document', 'workspace'])
-        ->where('user_id', $request->user()->id)
-        ->latest()
-        ->get();
+        $workspaces = $request->user()
+            ->workspaces()
+            ->select(['id', 'title'])
+            ->orderBy('title')
+            ->get();
 
-    return view('analyses.index', compact('analyses'));
-}
+        $analyses = Analysis::query()
+            ->where('user_id', $request->user()->id)
+            ->with([
+                'workspace:id,user_id,title',
+                'draftPackage:id,analysis_id',
+                'draftPackage.canonicalArtifacts:id,draft_package_id,artifact_type,format,title',
+            ])
+            ->select('analyses.*')
+            ->selectSub(
+                DB::table('analysis_source_versions')
+                    ->join('source_versions', 'source_versions.id', '=', 'analysis_source_versions.source_version_id')
+                    ->whereColumn('analysis_source_versions.analysis_id', 'analyses.id')
+                    ->selectRaw('COUNT(DISTINCT source_versions.source_id)'),
+                'sources_count'
+            )
+            ->withCount('amendments')
+            ->when(filled($filters['search'] ?? null), function ($query) use ($filters) {
+                $search = trim($filters['search']);
 
-public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDeletionService)
-{
-    Gate::authorize('delete', $analysis);
+                $query->where(function ($query) use ($search) {
+                    $query->where('analyses.title', 'like', "%{$search}%")
+                        ->orWhereHas('workspace', fn ($workspaceQuery) => $workspaceQuery
+                            ->where('title', 'like', "%{$search}%"));
+                });
+            })
+            ->when(isset($filters['workspace']), function ($query) use ($filters, $workspaces) {
+                if ($workspaces->contains('id', (int) $filters['workspace'])) {
+                    $query->where('workspace_id', (int) $filters['workspace']);
 
-    try {
-        $analysisDeletionService->delete($analysis);
+                    return;
+                }
 
-        return redirect()
-            ->route('analyses.index')
-            ->with('success', 'Анализ и сформированные результаты удалены.');
-    } catch (ValidationException $exception) {
-        return back()->with('error', $exception->validator->errors()->first());
-    } catch (Throwable $exception) {
-        report($exception);
+                $query->whereRaw('1 = 0');
+            })
+            ->when(filled($filters['status'] ?? null), fn ($query) => $query
+                ->where('status', $filters['status']))
+            ->latest('analyses.created_at')
+            ->latest('analyses.id')
+            ->paginate(15)
+            ->withQueryString();
 
-        return back()->with('error', 'Не удалось безопасно удалить анализ. Попробуйте позже.');
+        return view('analyses.index', compact('analyses', 'workspaces', 'filters'));
     }
-}
 
+    public function destroy(Analysis $analysis, AnalysisDeletionService $analysisDeletionService)
+    {
+        Gate::authorize('delete', $analysis);
+
+        try {
+            $analysisDeletionService->delete($analysis);
+
+            return redirect()
+                ->route('analyses.index')
+                ->with('success', 'Анализ и сформированные результаты удалены.');
+        } catch (ValidationException $exception) {
+            return back()->with('error', $exception->validator->errors()->first());
+        } catch (Throwable $exception) {
+            report($exception);
+
+            return back()->with('error', 'Не удалось безопасно удалить анализ. Попробуйте позже.');
+        }
+    }
 }

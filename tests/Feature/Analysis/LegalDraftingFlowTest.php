@@ -8,6 +8,7 @@ use App\Models\Source;
 use App\Models\SourceVersion;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\LegalRetrievalService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Http\Client\Request;
 use Illuminate\Support\Facades\Http;
@@ -231,7 +232,7 @@ class LegalDraftingFlowTest extends TestCase
 
             if ($call === 1) {
                 return Http::response($this->apiResponse([
-                    'source_sufficiency' => 'sufficient',
+                    'source_sufficiency' => 'insufficient',
                     'search_queries' => ['срок уведомления'],
                     'candidate_fragment_ids' => [$fragmentId],
                     'warnings' => [],
@@ -305,6 +306,194 @@ class LegalDraftingFlowTest extends TestCase
         ]);
         $this->assertDatabaseCount('analysis_amendments', 1);
         $this->assertSame(1, data_get($analysis->settings, 'amendment_validation.rejected_count'));
+    }
+
+    public function test_scenario_b_separates_target_from_supporting_context_across_seven_sources(): void
+    {
+        [$user, $analysis, $versions] = $this->productionLikeDiscoveryFixture();
+        $retrieval = app(LegalRetrievalService::class);
+        $fragment = function (string $sourceKey, string $article, ?string $paragraph = null) use ($retrieval, $versions) {
+            return collect($retrieval->split($versions[$sourceKey]))
+                ->first(fn ($item) => $item->article === $article
+                    && ($paragraph === null || $item->paragraph === $paragraph));
+        };
+        $target = $fragment('law', '13', '1');
+        $lawSupport = $fragment('law', '12', '1');
+        $formSupport = $fragment('form', '', '32')
+            ?? collect($retrieval->split($versions['form']))->firstWhere('paragraph', '32');
+        $civilSupport = $fragment('civil', '401', '1');
+        $civilProcedure = $fragment('civil', '402', '1');
+
+        $this->assertNotNull($target);
+        $this->assertNotNull($lawSupport);
+        $this->assertNotNull($formSupport);
+        $this->assertNotNull($civilSupport);
+        $this->assertNotNull($civilProcedure);
+
+        config()->set('services.openai.key', 'fake-scenario-b-supporting-key');
+        $draftingInput = null;
+        $call = 0;
+
+        Http::fake(function (Request $request) use (
+            &$call,
+            &$draftingInput,
+            $target,
+            $lawSupport,
+            $formSupport,
+            $civilSupport,
+            $civilProcedure,
+        ) {
+            $call++;
+
+            if ($call === 1) {
+                return Http::response($this->apiResponse([
+                    'source_sufficiency' => 'insufficient',
+                    'search_queries' => [
+                        'типовая форма договора изменение дополнительное соглашение',
+                        'гражданский кодекс изменение и расторжение договора',
+                    ],
+                    'candidate_fragment_ids' => [
+                        $target->fragmentId,
+                        $lawSupport->fragmentId,
+                        $formSupport->fragmentId,
+                        $civilSupport->fragmentId,
+                        $civilProcedure->fragmentId,
+                    ],
+                    'target_candidate_fragment_ids' => [$target->fragmentId],
+                    'supporting_candidate_fragment_ids' => [
+                        $lawSupport->fragmentId,
+                        $formSupport->fragmentId,
+                        $civilSupport->fragmentId,
+                        $civilProcedure->fragmentId,
+                    ],
+                    'requested_legal_issues' => [
+                        'Порядок изменения договора по Гражданскому кодексу Республики Казахстан',
+                        'Оформление дополнительного соглашения по Типовой форме договора о долевом участии',
+                    ],
+                    'warnings' => ['Ограниченный структурный каталог требует локального поиска по полным текстам.'],
+                ], 'resp_discovery_separated'), 200);
+            }
+
+            $draftingInput = $request->data()['input'];
+
+            return Http::response($this->apiResponse([
+                'scenario' => 'amendment_drafting',
+                'summary' => 'Нормы для разработки поправки найдены.',
+                'overall_assessment' => 'Целевой и supporting context разделены.',
+                'source_sufficiency' => ['status' => 'sufficient', 'warnings' => []],
+                'findings' => [],
+                'amendments' => [],
+            ], 'resp_drafting_separated'), 200);
+        });
+
+        $this->actingAs($user)->post(route('analyses.run', $analysis))->assertRedirect();
+
+        $settings = $analysis->fresh()->settings;
+        $context = collect(data_get($settings, 'retrieval_context'));
+        $formAudit = collect(data_get($settings, 'retrieval_audit.fragments'))
+            ->where('source_version_id', $versions['form']->id);
+
+        $this->assertSame('completed', $analysis->fresh()->status);
+        $this->assertSame('sufficient', data_get($settings, 'context_sufficiency.status'));
+        $this->assertSame('partial', data_get($settings, 'discovery.source_sufficiency'));
+        $this->assertSame([$target->fragmentId], data_get($settings, 'discovery.target_candidate_fragment_ids'));
+        $this->assertContains($formSupport->fragmentId, data_get($settings, 'discovery.supporting_candidate_fragment_ids'));
+        $this->assertTrue(collect(data_get($settings, 'retrieval_audit.groups'))->every(
+            fn (array $group) => (int) $group['source_version_id'] === $versions['law']->id
+                && $group['type'] === 'article'
+                && $group['locator'] === '13',
+        ));
+        $this->assertFalse($formAudit->contains(fn (array $item) => $item['role'] === 'mandatory'));
+        $this->assertLessThan($formAudit->count(), $formAudit->where('selected', true)->count());
+        $formSupportingAudit = collect(data_get($settings, 'retrieval_audit.supporting_candidates'))
+            ->firstWhere('candidate_fragment_id', $formSupport->fragmentId);
+        $this->assertSame('retrieved', $formSupportingAudit['coverage_status']);
+        $this->assertTrue($context->contains(fn (array $item) => $item['fragment_id'] === $lawSupport->fragmentId));
+        $this->assertTrue($context->contains(fn (array $item) => $item['fragment_id'] === $formSupport->fragmentId));
+        $this->assertTrue($context->contains(fn (array $item) => in_array($item['fragment_id'], [
+            $civilSupport->fragmentId,
+            $civilProcedure->fragmentId,
+        ], true)));
+        $this->assertLessThanOrEqual(30000, data_get($settings, 'budget_audit.total_used'));
+        $this->assertLessThanOrEqual(30000, data_get($settings, 'budget_audit.mandatory_required'));
+        $this->assertGreaterThan(0, data_get($settings, 'budget_audit.mandatory_used'));
+        $this->assertGreaterThan(0, data_get($settings, 'budget_audit.supporting_used'));
+        $this->assertStringContainsString('дополнительного соглашения', $draftingInput);
+        $this->assertStringContainsString('Изменение и расторжение договора', $draftingInput);
+        $this->assertFalse(collect(data_get($settings, 'warnings'))->contains(
+            fn (string $warning) => str_contains(mb_strtolower($warning), 'норма отсутствует'),
+        ));
+        $this->assertCount(2, Http::recorded());
+    }
+
+    private function productionLikeDiscoveryFixture(): array
+    {
+        $user = User::factory()->create();
+        $workspace = Workspace::create([
+            'user_id' => $user->id,
+            'reference_number' => 'WS-DISCOVERY-'.uniqid(),
+            'title' => 'Рабочее дело по долевому строительству',
+            'category' => 'other',
+            'status' => 'draft',
+        ]);
+        $document = Document::create([
+            'workspace_id' => $workspace->id,
+            'user_id' => $user->id,
+            'title' => 'Дополнительные соглашения при продлении срока строительства',
+            'document_type' => 'legal_norm',
+            'input_type' => 'text',
+            'language' => 'ru',
+            'status' => 'ready',
+            'analysis_instruction' => 'Разработать механизм заключения дополнительных соглашений при продлении срока строительства.',
+        ]);
+        $analysis = Analysis::create([
+            'workspace_id' => $workspace->id,
+            'document_id' => $document->id,
+            'user_id' => $user->id,
+            'title' => 'Production-like Scenario B',
+            'analysis_type' => 'amendment_drafting',
+            'instruction' => $document->analysis_instruction,
+            'status' => 'draft',
+            'version' => 1,
+        ]);
+        $formParagraphs = [];
+
+        for ($number = 1; $number <= 40; $number++) {
+            $formParagraphs[] = match ($number) {
+                1 => '1. Строительство завершается в установленный договором срок.',
+                2 => '2. Доля передается после приемки объекта.',
+                31 => '31. Стороны исполняют обязательства надлежащим образом.',
+                32 => '32. Изменения оформляются путем заключения дополнительного соглашения с обязательной постановкой на учет.',
+                33 => '33. Споры разрешаются в установленном порядке.',
+                default => $number.'. Технические сведения формы заполняются в установленном порядке.',
+            };
+        }
+
+        $definitions = [
+            'law' => ['Закон о долевом участии в жилищном строительстве', 'law', "Статья 12. Учет договоров\n1. Изменения и дополнения к договору подлежат обязательному учету.\n\nСтатья 13. Изменение и расторжение договора\n1. Изменения в договор вносятся по соглашению сторон в порядке гражданского законодательства."],
+            'form' => ['Типовая форма договора о долевом участии', 'order', implode("\n", $formParagraphs)],
+            'civil' => ['Гражданский кодекс Республики Казахстан', 'code', "Статья 380. Свобода договора\n1. Стороны свободны в заключении договора.\n\nСтатья 401. Основания изменения и расторжения договора\n1. Изменение договора возможно по соглашению сторон.\n\nСтатья 402. Порядок изменения договора\n1. Соглашение об изменении договора совершается в той же форме, что и договор."],
+            'building' => ['Строительный кодекс Республики Казахстан', 'code', "Статья 90. Приемка объекта\n1. Завершенный объект принимается в эксплуатацию в установленном порядке."],
+            'housing' => ['Закон о жилищных отношениях', 'law', "Статья 10. Жилищные отношения\n1. Право на жилище охраняется законом."],
+            'guarantee' => ['Правила предоставления гарантии', 'rules', "1. Гарантия обеспечивает завершение строительства.\n2. Условия гарантии определяются договором."],
+            'unrelated' => ['Правила технического учета', 'rules', "1. Оборудование проходит техническую проверку.\n2. Результат проверки регистрируется."],
+        ];
+        $versions = [];
+
+        foreach ($definitions as $key => [$title, $type, $text]) {
+            $source = Source::create(['title' => $title, 'type' => $type, 'status' => 'active']);
+            $version = SourceVersion::create([
+                'source_id' => $source->id,
+                'version_name' => 'Действующая редакция',
+                'text' => $text,
+                'hash' => hash('sha256', $text),
+            ]);
+            $workspace->sources()->attach($source);
+            $analysis->sourceVersions()->attach($version, ['role' => 'reference']);
+            $versions[$key] = $version;
+        }
+
+        return [$user, $analysis, $versions];
     }
 
     private function analysisFixture(string $mode, ?string $proposedText): array

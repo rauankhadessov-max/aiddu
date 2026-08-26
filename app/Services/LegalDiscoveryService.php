@@ -45,7 +45,12 @@ class LegalDiscoveryService
 СТРУКТУРНЫЙ КАТАЛОГ:
 {$catalog}
 
-Выбери только fragment_id из каталога, которые вероятно содержат точки внесения изменений или правовые основания.
+Раздели найденные fragment_id по назначению:
+- target_candidate_fragment_ids — только вероятные структурные элементы НПА, которые требуется изменить;
+- supporting_candidate_fragment_ids — нормы для проверки, обоснования и межотраслевых ссылок.
+Не включай supporting fragment в target только потому, что он юридически релевантен.
+requested_legal_issues должны кратко перечислять правовые вопросы, которые нужно проверить по выбранным источникам.
+candidate_fragment_ids сохрани как совместимый объединённый список target и supporting candidates.
 Не придумывай номера статей и названия НПА. Search queries используются только для локального поиска и не являются правовым выводом.
 Если каталог не позволяет определить кандидатов, верни source_sufficiency=insufficient и конкретные warnings без названия выдуманного НПА.
 PROMPT;
@@ -53,15 +58,29 @@ PROMPT;
             $prompt,
             $this->schema($allowedIds),
             [
-                'schema_name' => 'legal_discovery_v1',
+                'schema_name' => 'legal_discovery_v2',
                 'timeout' => config('legal_analysis.timeout_seconds', 180),
             ],
         );
         $result = $response['result'];
-        $candidateIds = array_values(array_slice(array_unique(array_filter(
-            $result['candidate_fragment_ids'] ?? [],
-            fn ($id) => is_string($id) && in_array($id, $allowedIds, true),
-        )), 0, (int) config('legal_analysis.discovery.max_candidates', 16)));
+        $legacyCandidateIds = $this->filterCandidateIds($result['candidate_fragment_ids'] ?? [], $allowedIds);
+        $hasSeparatedCandidates = array_key_exists('target_candidate_fragment_ids', $result)
+            || array_key_exists('supporting_candidate_fragment_ids', $result);
+        $targetCandidateIds = $this->filterCandidateIds($result['target_candidate_fragment_ids'] ?? [], $allowedIds);
+        $supportingCandidateIds = $this->filterCandidateIds($result['supporting_candidate_fragment_ids'] ?? [], $allowedIds);
+
+        if (! $hasSeparatedCandidates && $legacyCandidateIds !== []) {
+            [$targetCandidateIds, $supportingCandidateIds] = $this->partitionLegacyCandidates(
+                $legacyCandidateIds,
+                $allFragments,
+            );
+        }
+
+        $candidateIds = array_values(array_unique(array_merge(
+            $legacyCandidateIds,
+            $targetCandidateIds,
+            $supportingCandidateIds,
+        )));
         $queries = array_values(array_slice(array_filter(
             $result['search_queries'] ?? [],
             fn ($query) => is_string($query) && trim($query) !== '',
@@ -70,14 +89,25 @@ PROMPT;
             $result['warnings'] ?? [],
             fn ($warning) => is_string($warning) && trim($warning) !== '',
         ));
+        $requestedLegalIssues = array_values(array_slice(array_unique(array_filter(
+            $result['requested_legal_issues'] ?? [],
+            fn ($issue) => is_string($issue) && trim($issue) !== '',
+        )), 0, (int) config('legal_analysis.discovery.max_legal_issues', 12)));
         $sufficiency = in_array($result['source_sufficiency'] ?? null, ['sufficient', 'partial', 'insufficient'], true)
             ? $result['source_sufficiency']
             : 'insufficient';
-        $structuralPlan = $this->structuralDiscoveryService->planFromCandidates($analysis, $candidateIds);
+        $structuralPlan = $this->structuralDiscoveryService->planFromCandidates(
+            $analysis,
+            $targetCandidateIds,
+            $candidateIds === [],
+        );
         $retrieval = $this->retrievalService->retrieve(
             analysis: $analysis,
             additionalQuery: implode("\n", $queries),
             structuralPlan: $structuralPlan,
+            supportingCandidateIds: $supportingCandidateIds,
+            requestedLegalIssues: $requestedLegalIssues,
+            supportingQueries: $queries,
         );
 
         if ($retrieval->isEmpty()) {
@@ -92,6 +122,10 @@ PROMPT;
                 $retrieval->contextSufficiency->reasons,
                 $retrieval->contextSufficiency->missingElements,
             );
+        } elseif ($sufficiency === 'insufficient' && $candidateIds !== [] && ! $retrieval->isEmpty()) {
+            // Discovery sees only a bounded catalog. A successful deterministic retrieval may
+            // establish usable context, but it cannot promote the result above partial.
+            $sufficiency = 'partial';
         }
 
         return new LegalDiscoveryResult(
@@ -105,6 +139,9 @@ PROMPT;
             model: $response['model'] ?? null,
             requestPayloadHash: $response['request_payload_hash'] ?? null,
             contextSufficiency: $retrieval->contextSufficiency?->toArray(),
+            targetCandidateFragmentIds: $targetCandidateIds,
+            supportingCandidateFragmentIds: $supportingCandidateIds,
+            requestedLegalIssues: $requestedLegalIssues,
         );
     }
 
@@ -164,10 +201,54 @@ PROMPT;
                     'type' => 'array',
                     'items' => ['type' => 'string', 'enum' => $allowedIds],
                 ],
+                'target_candidate_fragment_ids' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string', 'enum' => $allowedIds],
+                ],
+                'supporting_candidate_fragment_ids' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string', 'enum' => $allowedIds],
+                ],
+                'requested_legal_issues' => [
+                    'type' => 'array',
+                    'items' => ['type' => 'string'],
+                ],
                 'warnings' => ['type' => 'array', 'items' => ['type' => 'string']],
             ],
-            'required' => ['source_sufficiency', 'search_queries', 'candidate_fragment_ids', 'warnings'],
+            'required' => [
+                'source_sufficiency',
+                'search_queries',
+                'candidate_fragment_ids',
+                'target_candidate_fragment_ids',
+                'supporting_candidate_fragment_ids',
+                'requested_legal_issues',
+                'warnings',
+            ],
         ];
+    }
+
+    private function filterCandidateIds(mixed $ids, array $allowedIds): array
+    {
+        return array_values(array_slice(array_unique(array_filter(
+            is_array($ids) ? $ids : [],
+            fn ($id) => is_string($id) && in_array($id, $allowedIds, true),
+        )), 0, (int) config('legal_analysis.discovery.max_candidates', 16)));
+    }
+
+    private function partitionLegacyCandidates(array $candidateIds, array $allFragments): array
+    {
+        $candidateMap = array_fill_keys($candidateIds, true);
+        $versionIds = collect($allFragments)
+            ->filter(fn ($fragment) => isset($candidateMap[$fragment->fragmentId]))
+            ->pluck('sourceVersionId')
+            ->unique()
+            ->values();
+
+        if ($versionIds->count() === 1) {
+            return [$candidateIds, []];
+        }
+
+        return [[], $candidateIds];
     }
 
     private function insufficient(string $warning): LegalDiscoveryResult

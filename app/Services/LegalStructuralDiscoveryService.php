@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Data\ContextSufficiencyResult;
+use App\Data\LegalContextFragment;
 use App\Data\LegalStructuralContextPlan;
 use App\Data\LegalStructuralIntent;
 use App\Models\Analysis;
@@ -37,8 +38,27 @@ class LegalStructuralDiscoveryService
         return $this->resolveIntents($analysis, $groups, $intents);
     }
 
-    public function planFromCandidates(Analysis $analysis, array $candidateFragmentIds): LegalStructuralContextPlan
-    {
+    public function planFromCandidates(
+        Analysis $analysis,
+        array $candidateFragmentIds,
+        bool $requireCandidate = false,
+    ): LegalStructuralContextPlan {
+        if ($candidateFragmentIds === []) {
+            if ($requireCandidate) {
+                return new LegalStructuralContextPlan(
+                    [],
+                    new ContextSufficiencyResult(
+                        status: 'insufficient',
+                        applicable: true,
+                        missingElements: ['discovery_candidate'],
+                        reasons: ['discovery_candidate_not_found'],
+                    ),
+                );
+            }
+
+            return new LegalStructuralContextPlan([], new ContextSufficiencyResult);
+        }
+
         $analysis->loadMissing(['document', 'sourceVersions.source']);
         $groups = $this->structureService->structuralGroups(
             $this->retrievalService->allFragments($analysis),
@@ -379,8 +399,11 @@ class LegalStructuralDiscoveryService
                     continue;
                 }
 
-                $group['role'] = $group['type'] === 'article' ? 'mandatory_target' : 'mandatory_parent';
-                $mandatory[$group['group_id']] = $group;
+                $candidateGroup = $group['type'] === 'article'
+                    ? $group
+                    : $this->boundedCandidateGroup($group, $fragment);
+                $candidateGroup['role'] = 'mandatory_target';
+                $mandatory[$candidateGroup['group_id']] = $candidateGroup;
                 $matchedIds[] = $fragment->fragmentId;
             }
         }
@@ -415,6 +438,58 @@ class LegalStructuralDiscoveryService
                 reasons: $resolved ? [] : ['discovery_candidate_not_found'],
             ),
         );
+    }
+
+    private function boundedCandidateGroup(array $group, LegalContextFragment $candidate): array
+    {
+        $fragments = $group['fragments'];
+        $candidateIndex = collect($fragments)->search(
+            fn ($fragment) => $fragment->fragmentId === $candidate->fragmentId,
+        );
+        $candidateIndex = $candidateIndex === false ? 0 : $candidateIndex;
+        $radius = (int) config('legal_analysis.discovery.bounded_neighborhood_fragments', 1);
+        $limit = (int) config('legal_analysis.discovery.bounded_group_chars', 8000);
+        $indexes = [$candidateIndex];
+
+        for ($distance = 1; $distance <= $radius; $distance++) {
+            if (isset($fragments[$candidateIndex - $distance])) {
+                $indexes[] = $candidateIndex - $distance;
+            }
+
+            if (isset($fragments[$candidateIndex + $distance])) {
+                $indexes[] = $candidateIndex + $distance;
+            }
+        }
+
+        usort($indexes, fn (int $left, int $right) => abs($left - $candidateIndex) <=> abs($right - $candidateIndex)
+            ?: $left <=> $right);
+        $selected = [];
+        $used = 0;
+
+        foreach ($indexes as $index) {
+            $fragment = $fragments[$index];
+            $chars = mb_strlen($fragment->toPromptBlock()) + 40;
+
+            if ($fragment->fragmentId !== $candidate->fragmentId && $used + $chars > $limit) {
+                continue;
+            }
+
+            $selected[$fragment->fragmentId] = $fragment;
+            $used += $chars;
+        }
+
+        $selected = array_values($selected);
+        usort($selected, fn ($left, $right) => $left->startOffset <=> $right->startOffset);
+        $locator = $candidate->paragraph ?? $candidate->subparagraph ?? $candidate->fragmentId;
+
+        return array_merge($group, [
+            'group_id' => hash('sha256', $group['group_id'].'|bounded|'.$candidate->fragmentId),
+            'type' => $candidate->paragraph !== null ? 'paragraph' : 'bounded_fragment',
+            'locator' => (string) $locator,
+            'fragments' => $selected,
+            'bounded' => true,
+            'candidate_fragment_id' => $candidate->fragmentId,
+        ]);
     }
 
     private function anchorCandidates(array $groups, string $locator): array

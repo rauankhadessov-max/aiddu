@@ -21,10 +21,18 @@ class LegalRetrievalService
         ?string $additionalQuery = null,
         array $requiredFragmentIds = [],
         ?LegalStructuralContextPlan $structuralPlan = null,
+        array $supportingCandidateIds = [],
+        array $requestedLegalIssues = [],
+        array $supportingQueries = [],
     ): LegalRetrievalResult {
         $analysis->loadMissing(['document', 'sourceVersions.source']);
 
-        $query = trim($this->buildQuery($analysis)."\n".($additionalQuery ?? ''));
+        $query = trim(implode("\n", array_filter([
+            $this->buildQuery($analysis),
+            $additionalQuery,
+            ...$requestedLegalIssues,
+            ...$supportingQueries,
+        ], fn ($value) => is_string($value) && trim($value) !== '')));
         $profile = $this->queryProfile($query);
         $allFragments = $this->allFragments($analysis);
         $corpus = $this->corpusStatistics($allFragments);
@@ -89,11 +97,16 @@ class LegalRetrievalService
             ];
         }
 
-        $mandatoryVersionIds = array_values(array_unique(array_map(
-            fn (array $group) => (int) $group['source_version_id'],
-            $mandatoryGroups,
-        )));
-        $crossSourceIssues = $this->crossSourceIssueService->discover($analysis, $mandatoryVersionIds);
+        [$supportingGroups, $supportingCoverage] = $this->supportingCandidateGroups(
+            $supportingCandidateIds,
+            $allFragments,
+            $scores,
+        );
+        $crossSourceIssues = $this->crossSourceIssueService->discover(
+            $analysis,
+            [],
+            [...$requestedLegalIssues, ...$supportingQueries],
+        );
         [$crossSourceGroups, $crossSourceCoverage] = $this->crossSourceCandidates(
             $crossSourceIssues,
             $allFragments,
@@ -123,13 +136,39 @@ class LegalRetrievalService
         $configuredCrossSourceBudget = (int) config('legal_analysis.retrieval.cross_source_reserved_chars', 8000);
         $crossSourceLimit = min($configuredCrossSourceBudget, $optionalLimit);
         $crossSourceUsed = 0;
+        $supportingUsed = 0;
         $crossSourceIds = [];
+        $supportingIds = [];
         $selectedCrossGroupIds = [];
+        $selectedSupportingGroupIds = [];
+
+        foreach ($supportingGroups as $group) {
+            $groupChars = array_sum(array_map(fn (LegalContextFragment $fragment) => $this->promptChars($fragment), $group['fragments']));
+
+            if ($supportingUsed + $groupChars > $crossSourceLimit) {
+                continue;
+            }
+
+            foreach ($group['fragments'] as $fragment) {
+                if (isset($selectedMap[$fragment->fragmentId])) {
+                    continue;
+                }
+
+                $selectedMap[$fragment->fragmentId] = $fragment->withScore(max(
+                    $scores[$fragment->fragmentId] ?? 0.0,
+                    $group['score'],
+                ));
+                $supportingIds[$fragment->fragmentId] = $group['candidate_fragment_ids'];
+                $supportingUsed += $this->promptChars($fragment);
+            }
+
+            $selectedSupportingGroupIds[$group['group_id']] = true;
+        }
 
         foreach ($crossSourceGroups as $group) {
             $groupChars = array_sum(array_map(fn (LegalContextFragment $fragment) => $this->promptChars($fragment), $group['fragments']));
 
-            if ($crossSourceUsed + $groupChars > $crossSourceLimit) {
+            if ($supportingUsed + $crossSourceUsed + $groupChars > $crossSourceLimit) {
                 continue;
             }
 
@@ -173,7 +212,7 @@ class LegalRetrievalService
 
             $chars = $this->promptChars($fragment);
 
-            if ($crossSourceUsed + $optionalUsed + $chars > $optionalLimit) {
+            if ($supportingUsed + $crossSourceUsed + $optionalUsed + $chars > $optionalLimit) {
                 $optionalDecisions[$fragment->fragmentId] = 'budget_skip';
 
                 continue;
@@ -188,6 +227,11 @@ class LegalRetrievalService
         $crossSourceCoverage = $this->finalizeCrossSourceCoverage(
             $crossSourceCoverage,
             $selectedCrossGroupIds,
+            $selectedMap,
+        );
+        $supportingCoverage = $this->finalizeSupportingCoverage(
+            $supportingCoverage,
+            $selectedSupportingGroupIds,
             $selectedMap,
         );
 
@@ -210,23 +254,27 @@ class LegalRetrievalService
         foreach ($allFragments as $fragment) {
             $id = $fragment->fragmentId;
             $mandatory = isset($mandatoryIds[$id]);
+            $supporting = isset($supportingIds[$id]);
             $crossSource = isset($crossSourceIds[$id]);
             $selectedFragment = isset($selectedMap[$id]);
             $reason = $mandatory
                 ? ($mandatoryFits ? $mandatoryRoles[$id] : 'mandatory_group_oversize')
-                : ($crossSource
+                : ($supporting
+                    ? 'supporting_candidate'
+                    : ($crossSource
                     ? 'cross_source_issue'
                     : (($scores[$id] ?? 0.0) <= 0
                     ? 'zero_relevance'
-                    : ($optionalDecisions[$id] ?? 'budget_skip')));
+                    : ($optionalDecisions[$id] ?? 'budget_skip'))));
             $fragmentAudit[] = [
                 'fragment_id' => $id,
                 'source_version_id' => $fragment->sourceVersionId,
                 'article' => $fragment->article,
                 'paragraph' => $fragment->paragraph,
                 'subparagraph' => $fragment->subparagraph,
-                'role' => $mandatory ? 'mandatory' : ($crossSource ? 'cross_source' : 'optional'),
+                'role' => $mandatory ? 'mandatory' : ($supporting ? 'supporting' : ($crossSource ? 'cross_source' : 'optional')),
                 'mandatory_reason' => $mandatory ? $mandatoryRoles[$id] : null,
+                'supporting_candidate_ids' => $supportingIds[$id] ?? [],
                 'cross_source_issue_ids' => $crossSourceIds[$id] ?? [],
                 'score' => round($scores[$id] ?? 0.0, 6),
                 'rank' => $ranks[$id] ?? null,
@@ -273,6 +321,7 @@ class LegalRetrievalService
             retrievalAudit: [
                 'groups' => $mandatoryGroupAudit,
                 'fragments' => $fragmentAudit,
+                'supporting_candidates' => $supportingCoverage,
                 'cross_source_coverage' => $crossSourceCoverage,
             ],
             budgetAudit: [
@@ -283,9 +332,10 @@ class LegalRetrievalService
                 'mandatory_used' => $mandatoryUsed,
                 'cross_source_reserved' => $crossSourceLimit,
                 'cross_source_used' => $crossSourceUsed,
+                'supporting_used' => $supportingUsed,
                 'general_optional_used' => $optionalUsed,
-                'optional_used' => $crossSourceUsed + $optionalUsed,
-                'total_used' => $mandatoryUsed + $crossSourceUsed + $optionalUsed,
+                'optional_used' => $supportingUsed + $crossSourceUsed + $optionalUsed,
+                'total_used' => $mandatoryUsed + $supportingUsed + $crossSourceUsed + $optionalUsed,
                 'mandatory_borrowed_from_optional' => max(0, $mandatoryUsed - $reservedBudget),
             ],
             contextSufficiency: $contextSufficiency,
@@ -749,6 +799,175 @@ class LegalRetrievalService
         ));
 
         return preg_match('/(?<![\p{L}\p{N}])'.$pattern.'(?![\p{L}\p{N}])/u', $text) === 1;
+    }
+
+    private function supportingCandidateGroups(array $candidateIds, array $allFragments, array $scores): array
+    {
+        $candidateIds = array_values(array_unique(array_filter($candidateIds, 'is_string')));
+        $fragmentsById = [];
+
+        foreach ($allFragments as $fragment) {
+            $fragmentsById[$fragment->fragmentId] = $fragment;
+        }
+
+        $structuralGroups = $this->structureService->structuralGroups($allFragments);
+        $groups = [];
+        $coverage = [];
+
+        foreach ($candidateIds as $candidateId) {
+            $candidate = $fragmentsById[$candidateId] ?? null;
+            $coverageEntry = [
+                'candidate_fragment_id' => $candidateId,
+                'source_id' => $candidate?->sourceId,
+                'source_version_id' => $candidate?->sourceVersionId,
+                'group_id' => null,
+                'group_type' => null,
+                'fragment_ids' => [],
+                'selected_fragment_ids' => [],
+                'coverage_status' => $candidate === null ? 'unknown_fragment' : 'found_but_not_retrieved',
+                'exclusion_reason' => $candidate === null ? 'unknown_fragment' : 'pending_budget_selection',
+            ];
+
+            if ($candidate === null) {
+                $coverage[] = $coverageEntry;
+
+                continue;
+            }
+
+            $group = $candidate->article !== null
+                ? collect($structuralGroups)->first(fn (array $item) => $item['type'] === 'article'
+                    && $item['source_version_id'] === $candidate->sourceVersionId
+                    && $item['article'] === $candidate->article
+                    && $item['appendix'] === $candidate->appendix
+                    && $item['section'] === $candidate->section
+                    && $item['chapter'] === $candidate->chapter
+                    && $item['part'] === $candidate->part)
+                : null;
+
+            if (! is_array($group)) {
+                $group = $this->boundedSupportingGroup($candidate, $allFragments);
+            }
+
+            $groupKey = $group['group_id'];
+            $score = max(
+                (float) ($scores[$candidateId] ?? 0.0),
+                (float) config('legal_analysis.discovery.supporting_candidate_score', 500),
+            );
+
+            if (! isset($groups[$groupKey])) {
+                $groups[$groupKey] = array_merge($group, [
+                    'score' => $score,
+                    'candidate_fragment_ids' => [$candidateId],
+                ]);
+            } else {
+                $groups[$groupKey]['score'] = max($groups[$groupKey]['score'], $score);
+                $groups[$groupKey]['candidate_fragment_ids'][] = $candidateId;
+                $groups[$groupKey]['candidate_fragment_ids'] = array_values(array_unique(
+                    $groups[$groupKey]['candidate_fragment_ids'],
+                ));
+            }
+
+            $coverageEntry['group_id'] = $groupKey;
+            $coverageEntry['group_type'] = $group['type'];
+            $coverageEntry['fragment_ids'] = array_map(
+                fn (LegalContextFragment $fragment) => $fragment->fragmentId,
+                $group['fragments'],
+            );
+            $coverage[] = $coverageEntry;
+        }
+
+        $groups = array_values($groups);
+        usort($groups, fn (array $left, array $right) => $right['score'] <=> $left['score']
+            ?: $left['source_version_id'] <=> $right['source_version_id']
+            ?: strcmp($left['group_id'], $right['group_id']));
+
+        return [$groups, $coverage];
+    }
+
+    private function boundedSupportingGroup(LegalContextFragment $candidate, array $allFragments): array
+    {
+        $stream = array_values(array_filter(
+            $allFragments,
+            fn (LegalContextFragment $fragment) => $fragment->sourceVersionId === $candidate->sourceVersionId
+                && $fragment->appendix === $candidate->appendix,
+        ));
+        usort($stream, fn (LegalContextFragment $left, LegalContextFragment $right) => $left->startOffset <=> $right->startOffset);
+        $candidateIndex = collect($stream)->search(
+            fn (LegalContextFragment $fragment) => $fragment->fragmentId === $candidate->fragmentId,
+        );
+        $candidateIndex = $candidateIndex === false ? 0 : $candidateIndex;
+        $radius = (int) config('legal_analysis.discovery.bounded_neighborhood_fragments', 1);
+        $limit = (int) config('legal_analysis.discovery.bounded_group_chars', 8000);
+        $indexes = [$candidateIndex];
+
+        for ($distance = 1; $distance <= $radius; $distance++) {
+            if (isset($stream[$candidateIndex - $distance])) {
+                $indexes[] = $candidateIndex - $distance;
+            }
+
+            if (isset($stream[$candidateIndex + $distance])) {
+                $indexes[] = $candidateIndex + $distance;
+            }
+        }
+
+        usort($indexes, fn (int $left, int $right) => abs($left - $candidateIndex) <=> abs($right - $candidateIndex)
+            ?: $left <=> $right);
+        $selected = [];
+        $used = 0;
+
+        foreach ($indexes as $index) {
+            $fragment = $stream[$index];
+            $chars = $this->promptChars($fragment);
+
+            if ($fragment->fragmentId !== $candidate->fragmentId && $used + $chars > $limit) {
+                continue;
+            }
+
+            $selected[$fragment->fragmentId] = $fragment;
+            $used += $chars;
+        }
+
+        $selected = array_values($selected);
+        usort($selected, fn (LegalContextFragment $left, LegalContextFragment $right) => $left->startOffset <=> $right->startOffset);
+        $key = implode('|', [
+            'supporting',
+            $candidate->sourceVersionId,
+            $candidate->appendix,
+            $candidate->paragraph,
+            $candidate->fragmentId,
+        ]);
+
+        return [
+            'group_id' => hash('sha256', $key),
+            'source_id' => $candidate->sourceId,
+            'source_version_id' => $candidate->sourceVersionId,
+            'type' => $candidate->paragraph !== null ? 'paragraph_neighborhood' : 'fragment_neighborhood',
+            'locator' => $candidate->paragraph ?? $candidate->fragmentId,
+            'appendix' => $candidate->appendix,
+            'article' => $candidate->article,
+            'fragments' => $selected,
+        ];
+    }
+
+    private function finalizeSupportingCoverage(array $coverage, array $selectedGroupIds, array $selectedMap): array
+    {
+        foreach ($coverage as &$entry) {
+            if ($entry['coverage_status'] === 'unknown_fragment') {
+                continue;
+            }
+
+            $selectedIds = array_values(array_filter(
+                $entry['fragment_ids'],
+                fn (string $id) => isset($selectedMap[$id]),
+            ));
+            $entry['selected_fragment_ids'] = $selectedIds;
+            $entry['coverage_status'] = $selectedIds === [] ? 'found_but_not_retrieved' : 'retrieved';
+            $entry['exclusion_reason'] = $selectedIds === [] ? 'supporting_budget_skip' : null;
+            $entry['group_selected'] = isset($selectedGroupIds[$entry['group_id']]);
+        }
+        unset($entry);
+
+        return $coverage;
     }
 
     private function crossSourceCandidates(array $issues, array $allFragments): array

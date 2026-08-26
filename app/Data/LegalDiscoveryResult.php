@@ -15,6 +15,9 @@ final readonly class LegalDiscoveryResult
         public ?string $model,
         public ?string $requestPayloadHash,
         public ?array $contextSufficiency = null,
+        public array $targetCandidateFragmentIds = [],
+        public array $supportingCandidateFragmentIds = [],
+        public array $requestedLegalIssues = [],
     ) {}
 
     public function snapshot(): array
@@ -23,6 +26,9 @@ final readonly class LegalDiscoveryResult
             'source_sufficiency' => $this->sourceSufficiency,
             'warnings' => $this->warnings,
             'candidate_fragment_ids' => $this->candidateFragmentIds,
+            'target_candidate_fragment_ids' => $this->targetCandidateFragmentIds,
+            'supporting_candidate_fragment_ids' => $this->supportingCandidateFragmentIds,
+            'requested_legal_issues' => $this->requestedLegalIssues,
             'search_queries' => $this->searchQueries,
             'response_id' => $this->responseId,
             'usage' => $this->usage,

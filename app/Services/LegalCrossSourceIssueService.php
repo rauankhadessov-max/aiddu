@@ -13,11 +13,19 @@ class LegalCrossSourceIssueService
 
     public function __construct(private readonly LegalRetrievalTextNormalizer $normalizer) {}
 
-    public function discover(Analysis $analysis, array $excludedSourceVersionIds = []): array
-    {
+    public function discover(
+        Analysis $analysis,
+        array $excludedSourceVersionIds = [],
+        array $additionalIssues = [],
+    ): array {
         $analysis->loadMissing(['document', 'sourceVersions.source']);
         $excluded = array_fill_keys(array_map('intval', $excludedSourceVersionIds), true);
-        $clauses = $this->clauses((string) $analysis->instruction);
+        $clauses = collect([(string) $analysis->instruction, ...$additionalIssues])
+            ->filter(fn ($value) => is_string($value) && trim($value) !== '')
+            ->flatMap(fn (string $value) => $this->clauses($value))
+            ->unique()
+            ->values()
+            ->all();
         $versions = $analysis->sourceVersions
             ->reject(fn ($version) => isset($excluded[(int) $version->id]))
             ->values();

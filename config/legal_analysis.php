@@ -2,7 +2,7 @@
 
 return [
     'prompt_version' => 'legal-drafting-v4',
-    'retrieval_version' => 'structural-cross-source-v4',
+    'retrieval_version' => 'structural-target-supporting-v5',
     'citation_validator_version' => 'citation-v3',
     'drafting_validator_version' => 'amendment-v1',
     'timeout_seconds' => 180,
@@ -41,7 +41,11 @@ return [
         'outline_budget_chars' => 50000,
         'max_candidates' => 16,
         'max_search_queries' => 12,
+        'max_legal_issues' => 12,
         'required_fragment_score' => 1000,
+        'supporting_candidate_score' => 500,
+        'bounded_neighborhood_fragments' => 1,
+        'bounded_group_chars' => 8000,
     ],
 
     'draft_package' => [

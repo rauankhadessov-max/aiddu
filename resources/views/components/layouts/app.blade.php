@@ -6,7 +6,7 @@
 
     <meta name="csrf-token" content="{{ csrf_token() }}">
 
-    <title>{{ $title ?? 'Правовой ИИ' }}</title>
+    @include('partials.browser-branding', ['browserTitle' => $title ?? 'Правовой ИИ'])
 
     @vite(['resources/css/app.css', 'resources/js/app.js'])
 

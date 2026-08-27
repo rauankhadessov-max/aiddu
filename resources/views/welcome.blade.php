@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-    <title>Правовой ИИ</title>
+    @include('partials.browser-branding', ['browserTitle' => 'Правовой ИИ'])
 
     <style>
         * {
@@ -334,7 +334,7 @@
     <section class="capabilities" id="capabilities">
         <div class="container">
             <div class="section-title">
-                <h2>Возможности AI DDU</h2>
+                <h2>Возможности «Правового ИИ»</h2>
                 <p>
                     Первый MVP будет сосредоточен на задачах, которые требуют
                     значительных трудозатрат при ручном юридическом анализе.

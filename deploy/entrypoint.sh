@@ -16,6 +16,11 @@ php artisan migrate --force --no-interaction
 php artisan config:cache
 php artisan route:cache
 php artisan view:cache
-php artisan storage:link || true
+
+# storage:link намеренно не вызывается: публичный диск в проекте не
+# используется (поиск по disk('public'), asset('storage/…') и Storage::url
+# ничего не находит), документы отдаются через PHP из диска local.
+# Контейнер работает от www-data и не может создать ссылку в public/,
+# из-за чего каждый запуск писал в журнал ошибку symlink(): Permission denied.
 
 exec "$@"

@@ -9,18 +9,11 @@ COPY vite.config.js tailwind.config.js postcss.config.js ./
 COPY resources ./resources
 RUN npm run build
 
-# ---------- 2. PHP-зависимости ----------
-FROM composer:2 AS vendor
-WORKDIR /app
-COPY composer.json composer.lock ./
-RUN composer install \
-      --no-dev --no-scripts --no-autoloader \
-      --prefer-dist --no-interaction --no-progress
-COPY . .
-RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
-
-# ---------- 3. Рабочий образ PHP-FPM ----------
-FROM php:8.4-fpm-alpine AS runtime
+# ---------- 2. База: PHP с расширениями ----------
+# Общая для установки зависимостей и для рабочего образа, чтобы Composer
+# проверял требования пакетов (phpword требует ext-gd) ровно в том
+# окружении, где код будет выполняться.
+FROM php:8.4-fpm-alpine AS base
 
 RUN apk add --no-cache \
         icu-libs libzip libpng libjpeg-turbo freetype oniguruma libpq \
@@ -34,6 +27,20 @@ RUN apk add --no-cache \
     && docker-php-ext-enable redis \
     && apk del .build-deps \
     && rm -rf /tmp/pear
+
+# ---------- 3. PHP-зависимости ----------
+FROM base AS vendor
+COPY --from=composer:2 /usr/bin/composer /usr/bin/composer
+WORKDIR /app
+COPY composer.json composer.lock ./
+RUN composer install \
+      --no-dev --no-scripts --no-autoloader \
+      --prefer-dist --no-interaction --no-progress
+COPY . .
+RUN composer dump-autoload --no-dev --optimize --classmap-authoritative
+
+# ---------- 4. Рабочий образ PHP-FPM ----------
+FROM base AS runtime
 
 COPY deploy/php/php.ini  /usr/local/etc/php/conf.d/99-app.ini
 COPY deploy/php/www.conf /usr/local/etc/php-fpm.d/zz-app.conf
@@ -54,7 +61,7 @@ EXPOSE 9000
 ENTRYPOINT ["entrypoint"]
 CMD ["php-fpm"]
 
-# ---------- 4. Nginx со статикой приложения ----------
+# ---------- 5. Nginx со статикой приложения ----------
 FROM nginx:1.27-alpine AS web
 COPY deploy/nginx/default.conf       /etc/nginx/conf.d/default.conf
 COPY --from=vendor /app/public       /var/www/html/public

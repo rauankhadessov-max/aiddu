@@ -22,8 +22,9 @@ server {
 }
 
 server {
-    listen 443 ssl;
-    http2 on;
+    # Синтаксис для nginx 1.24 из Ubuntu 24.04: отдельная директива
+    # http2 появилась только в 1.25 и здесь вызывает ошибку запуска.
+    listen 443 ssl http2;
     server_name 192.168.20.162;
 
     ssl_certificate     /etc/ssl/certs/aiddu.crt;

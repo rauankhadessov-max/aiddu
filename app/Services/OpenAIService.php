@@ -80,10 +80,14 @@ class OpenAIService
 
     private function send(array $payload, int $timeout): Response
     {
-        $response = Http::withToken(config('services.openai.key'))
-            ->acceptJson()
-            ->timeout($timeout)
-            ->post('https://api.openai.com/v1/responses', $payload);
+        $request = Http::acceptJson()->timeout($timeout);
+
+        // Azure OpenAI ожидает ключ в заголовке api-key, OpenAI — в Bearer.
+        $request = config('services.openai.auth_header') === 'api-key'
+            ? $request->withHeaders(['api-key' => config('services.openai.key')])
+            : $request->withToken(config('services.openai.key'));
+
+        $response = $request->post(config('services.openai.responses_url'), $payload);
 
         if (!$response->successful()) {
             $message = $response->json('error.message')

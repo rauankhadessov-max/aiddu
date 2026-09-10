@@ -35,10 +35,20 @@ return [
         ],
     ],
 
-'openai' => [
-    'key' => env('OPENAI_API_KEY'),
-    'model' => env('OPENAI_MODEL', 'gpt-5.6-terra'),
-],
+    'openai' => [
+        'key' => env('OPENAI_API_KEY'),
+
+        // В Azure OpenAI это не название модели, а имя развёртывания,
+        // которое задаёт администратор ресурса.
+        'model' => env('OPENAI_MODEL', 'gpt-5.6-terra'),
+
+        // Полный адрес Responses API. По умолчанию — OpenAI напрямую.
+        // Для Azure: https://<ресурс>.cognitiveservices.azure.com/openai/responses?api-version=<версия>
+        'responses_url' => env('OPENAI_RESPONSES_URL', 'https://api.openai.com/v1/responses'),
+
+        // Способ передачи ключа: bearer (OpenAI) или api-key (Azure).
+        'auth_header' => env('OPENAI_AUTH_HEADER', 'bearer'),
+    ],
 
 
 

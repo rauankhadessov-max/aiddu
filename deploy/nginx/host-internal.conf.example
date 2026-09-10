@@ -1,0 +1,49 @@
+# Конфигурация Nginx на ХОСТЕ для развёртывания во внутренней сети.
+#
+# Публичного домена нет, Let's Encrypt неприменим, поэтому используется
+# самоподписанный сертификат. Скопировать в /etc/nginx/sites-available/aiddu
+# и подставить фактический адрес сервера вместо 192.168.20.162.
+#
+# Сертификат создаётся один раз командой:
+#
+#   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
+#     -keyout /etc/ssl/private/aiddu.key \
+#     -out    /etc/ssl/certs/aiddu.crt \
+#     -subj   "/C=KZ/O=Pravovoy AI/CN=192.168.20.162" \
+#     -addext "subjectAltName=IP:192.168.20.162"
+#
+# Расширение subjectAltName обязательно: браузеры давно игнорируют CN
+# и без SAN покажут ошибку, даже если сертификат добавлен в доверенные.
+
+server {
+    listen 80;
+    server_name 192.168.20.162;
+    return 301 https://$host$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    http2 on;
+    server_name 192.168.20.162;
+
+    ssl_certificate     /etc/ssl/certs/aiddu.crt;
+    ssl_certificate_key /etc/ssl/private/aiddu.key;
+    ssl_protocols       TLSv1.2 TLSv1.3;
+    ssl_prefer_server_ciphers off;
+
+    client_max_body_size 16m;
+
+    location / {
+        proxy_pass http://127.0.0.1:8080;
+        proxy_set_header Host              $host;
+        proxy_set_header X-Real-IP         $remote_addr;
+        proxy_set_header X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+
+        # Анализ выполняется синхронно и может идти минутами —
+        # значение по умолчанию (60 с) обрывает его на середине.
+        proxy_read_timeout 900s;
+        proxy_send_timeout 900s;
+        proxy_buffering    off;
+    }
+}

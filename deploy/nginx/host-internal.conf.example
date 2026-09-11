@@ -1,31 +1,33 @@
 # Конфигурация Nginx на ХОСТЕ для развёртывания во внутренней сети.
 #
-# Публичного домена нет, Let's Encrypt неприменим, поэтому используется
-# самоподписанный сертификат. Скопировать в /etc/nginx/sites-available/aiddu
-# и подставить фактический адрес сервера вместо 192.168.20.162.
+# Домен npa.khc.kz существует только во внутреннем DNS организации и
+# указывает на 192.168.20.162. В публичном DNS записи нет, поэтому
+# Let's Encrypt по проверке HTTP-01 неприменим и используется
+# самоподписанный сертификат.
 #
 # Сертификат создаётся один раз командой:
 #
 #   openssl req -x509 -nodes -days 3650 -newkey rsa:2048 \
 #     -keyout /etc/ssl/private/aiddu.key \
 #     -out    /etc/ssl/certs/aiddu.crt \
-#     -subj   "/C=KZ/O=Pravovoy AI/CN=192.168.20.162" \
-#     -addext "subjectAltName=IP:192.168.20.162"
+#     -subj   "/C=KZ/O=Pravovoy AI/CN=npa.khc.kz" \
+#     -addext "subjectAltName=DNS:npa.khc.kz,IP:192.168.20.162"
 #
-# Расширение subjectAltName обязательно: браузеры давно игнорируют CN
-# и без SAN покажут ошибку, даже если сертификат добавлен в доверенные.
+# Расширение subjectAltName обязательно: браузеры давно игнорируют CN.
+# Адрес указан в нём наравне с именем, чтобы вход по IP тоже работал
+# без предупреждения о несовпадении имени.
 
 server {
     listen 80;
-    server_name 192.168.20.162;
-    return 301 https://$host$request_uri;
+    server_name npa.khc.kz 192.168.20.162;
+    return 301 https://npa.khc.kz$request_uri;
 }
 
 server {
     # Синтаксис для nginx 1.24 из Ubuntu 24.04: отдельная директива
     # http2 появилась только в 1.25 и здесь вызывает ошибку запуска.
     listen 443 ssl http2;
-    server_name 192.168.20.162;
+    server_name npa.khc.kz 192.168.20.162;
 
     ssl_certificate     /etc/ssl/certs/aiddu.crt;
     ssl_certificate_key /etc/ssl/private/aiddu.key;
